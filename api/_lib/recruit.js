@@ -101,9 +101,12 @@ export async function applyStudy(store, user, body) {
   });
 }
 
-// 신청 하나 바꾸기: { status: "accepted" | "rejected" } 모집자의 수락·거절 · { status: "withdrawn" } 신청자의 거두기
+// 신청 하나 바꾸기: { status: "accepted" | "rejected" } 모집자의 수락·거절 · { status: "removed" } 모집자의 내보내기
+//                  { status: "withdrawn" } 신청자의 거두기 · { status: "left" } 수락된 본인의 나가기
 export function updateApp(store, user, id, body) {
   if (body.status === "withdrawn") return withdrawApp(store, user, id);
+  if (body.status === "left") return leaveApp(store, user, id);
+  if (body.status === "removed") return removeApp(store, user, id);
   return decideApp(store, user, id, body);
 }
 
@@ -137,5 +140,22 @@ export async function withdrawApp(store, user, id) {
     const a = state.apps.find((x) => x.id === id);
     if (a.personId !== user.id) throw new HttpError(403, "내 신청만 취소할 수 있어요.");
     return saveApp(store, state, rule(() => R.withdraw(s, state.apps, user.id, id)), id);
+  });
+}
+
+// 수락된 본인만 나갈 수 있어요 (모집자도 남을 나가게 할 수 없어요. 그때는 내보내기를 써요)
+export async function leaveApp(store, user, id) {
+  return lockApp(store, id, (state, s) => {
+    const a = state.apps.find((x) => x.id === id);
+    if (a.personId !== user.id) throw new HttpError(403, "본인만 나갈 수 있어요.");
+    return saveApp(store, state, rule(() => R.leave(s, state.apps, user.id, id)), id);
+  });
+}
+
+// 모집자만 수락된 사람을 내보낼 수 있어요
+export async function removeApp(store, user, id) {
+  return lockApp(store, id, (state, s) => {
+    needLeader(s, user);
+    return saveApp(store, state, rule(() => R.removeMember(s, state.apps, user.id, id)), id);
   });
 }
