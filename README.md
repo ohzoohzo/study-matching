@@ -71,6 +71,7 @@ npm test             # 기획안·모집 규칙과 서버 함수 검사 (Node 20
 - 시간대는 기획안과 같은 6개(평일 낮·저녁·밤, 주말 오전·오후·저녁)예요. 스터디를 열 때 진행 시간대를, 신청할 때 내가 가능한 시간대를 여러 개 고를 수 있고, 둘 다 안 골라도 돼요(안 고른 스터디는 "시간은 모여서 정해요"). 고른 요일에 맞는 시간대만 보여요(화·목 → 평일 셋). 모집자 상세 화면에는 시간대마다 수락된 사람·대기 중인 사람이 몇 명인지 겹침 요약이 보여요.
 - 모집 취소는 스터디를 지우지 않고 `canceled`로 남겨요. 목록·검색에서 빠지고, 함께하기로 했거나 대기 중이던 사람은 "내 스터디"와 상세 화면에서 "모집자가 취소했어요"를 봐요. 되돌릴 수 없어서 확인 창을 먼저 띄워요.
 - 신청 취소는 대기 중인 신청만 할 수 있고, 신청을 `withdrawn`으로 남겨요. 모집자 화면에서 빠지고, 나중에 다시 신청할 수 있어요.
+- **회원 탈퇴**: 오른쪽 위 프로필 → 회원 탈퇴. 확인 창을 거치면, 내가 연 스터디는 모집 취소, 내 신청은 신청 취소(수락된 스터디는 나감)로 바뀌고 관련된 사람에게 알림이 가요. 이름·직군·알림함·푸시 구독은 바로 지우고, 기록 속 계정 번호는 임시 번호로 바꿔요(다른 사람 화면에는 "탈퇴한 사람"). 같은 구글 계정으로 다시 가입하면 처음부터 시작해요.
 - **활기 숫자**: 목록 맨 위에 가입한 사람(직군별), 모집 중인 스터디, 스터디에 함께하는 사람, 최근 7일 새 스터디를 숫자로 보여 줘요. 이름은 보여 주지 않고, 계산은 `recruit-logic.js`의 `activityStats`가 해요.
 - **사이트 알림함**: 메뉴의 종 아이콘에 안 읽은 알림 개수가 보이고, 누르면 최근 알림 30개가 열려요. 알림을 누르거나 그 스터디 상세를 열면 읽음이 돼요(푸시를 눌러 들어와도 읽음). 푸시를 켜지 않았어도 알림함에는 쌓여요.
 - **브라우저 푸시 알림**: 오른쪽 위 프로필 창에서 "이 기기에서 알림 받기"를 누르면 사이트를 닫아 둬도 알림이 와요. 모집자는 새 신청·신청 취소·나감을, 신청자는 수락·거절·내보내짐·모집 취소를 받아요. 알림을 누르면 그 스터디로 가요. 아이폰·아이패드는 사파리에서 "홈 화면에 추가"한 앱에서만 켤 수 있어요. 알림을 못 보내도 신청·수락 같은 동작은 그대로 돼요.
@@ -86,7 +87,7 @@ npm test             # 기획안·모집 규칙과 서버 함수 검사 (Node 20
 | 요청 | 하는 일 | 누가 |
 |---|---|---|
 | `GET /api/recruit/state` | 스터디·신청·사람(이름·직군) 전체 | 누구나 |
-| `GET /api/recruit/me` · `PUT /api/recruit/me` | 내 프로필 보기 · 이름과 직군 저장 | 로그인한 나 |
+| `GET /api/recruit/me` · `PUT /api/recruit/me` · `DELETE /api/recruit/me` | 내 프로필 보기 · 이름과 직군 저장 · 회원 탈퇴 | 로그인한 나 |
 | `POST /api/recruit/studies` `{ title, days, times?, mode, capacity, goal, deadline?, startDate?, endDate? }` | 스터디 열기 (times: 진행 시간대, 일정: "2026-10-25" 모양, 모두 선택) | 로그인 + 프로필 |
 | `PATCH /api/recruit/studies/:id` `{ closed: true }` · `{ closed: false }` · `{ canceled: true }` | 모집 마감 · 다시 열기 · 모집 취소(되돌릴 수 없어요) | 모집자만 |
 | `POST /api/recruit/apps` `{ studyId, message, times? }` | 신청 (times: 내가 가능한 시간대, 선택) | 로그인 + 프로필 |
@@ -96,6 +97,7 @@ npm test             # 기획안·모집 규칙과 서버 함수 검사 (Node 20
 | `PATCH /api/recruit/apps/:id` `{ status: "removed" }` | 내보내기 (수락된 사람) | 모집자만 |
 | `GET /api/recruit/notes` · `PATCH /api/recruit/notes` `{ ids }` 또는 `{ all: true }` | 내 알림함(최근 30개)과 안 읽은 개수 · 읽음으로 바꾸기 | 로그인한 나 |
 | `GET /api/recruit/push` | 알림 공개키와 알림이 켜진 서버인지(`enabled`) | 누구나 |
+| `POST /api/recruit/push` `{ test: true }` | 테스트 알림: 내 기기들로 지금 보내고 기기마다 푸시 서버 응답을 돌려줘요 | 로그인한 나 |
 | `POST /api/recruit/push` `{ subscription }` · `DELETE /api/recruit/push` `{ endpoint }` | 이 기기 알림 켜기·끄기 (브라우저 회사의 푸시 서버 주소만 받아요, 한 사람에 5대까지) | 로그인한 나 |
 
 - 규칙은 화면과 같은 `recruit/recruit-logic.js`를 서버에서도 그대로 써요. 모집자 확인도 `canManage`로 서버에서 막아요.
@@ -114,6 +116,12 @@ set -a; . ./.env.local; set +a; RECRUIT_DEV_AUTH=1 vercel dev   # .env.local의 
 
 ## 사용한 스킬과 프롬프트
 
+- 회원 탈퇴 (feat/recruit-delete-account)
+  - 스킬: `superpowers:brainstorming`(내 스터디·신청·남은 이름·구독/알림함 처리 방식을 추천안으로 정함), `superpowers:test-driven-development`, `superpowers:verification-before-completion`
+  - 프롬프트: (다른 세션에서 넘겨받음) "회원 탈퇴도 만들자" → "회원 탈퇴를 이 추천안대로 만들어"
+- 테스트 알림 (feat/recruit-push-test)
+  - 스킬: `superpowers:systematic-debugging`(운영 Redis·로그로 증거를 모으고 서버→FCM→기기→표시 경계에 진단 장치), `superpowers:test-driven-development`
+  - 프롬프트: "푸시 알림 안 됨, firebase 해야 되는 거 아니야?" → "안드로이드 휴대폰 크롬에서 켰어. 테스트 알림 버튼을 만들어서 원인을 찾아 줘."
 - 활기 숫자 (feat/recruit-stats)
   - 스킬: `superpowers:brainstorming`(이름 목록 대신 숫자로 보여 주기로 정함), `dataviz`(차트가 아니라 큰 숫자 칸(KPI row)으로, 글자는 글자색 토큰·비례 숫자), `superpowers:test-driven-development`, `superpowers:verification-before-completion`
   - 프롬프트: "가입된 사용자 목록을 보여 주는 기능은 어때? 사람들이 많이 사용하고 있구나가 시각화돼야 좀 사용하지 않을까" → "그렇게 하자 숫자로 활기를 보여 주는 식으로"
