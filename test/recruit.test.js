@@ -414,3 +414,36 @@ test("알림: 모집 취소는 수락된 사람과 대기 중인 사람에게만
 test("알림: 모르는 일이면 아무에게도 보내지 않아요", () => {
   assert.deepEqual(push("closed", "x2"), []);
 });
+
+// ---------- 사이트 알림함 (푸시와 같은 알림을 저장해요) ----------
+test("알림 문구에는 어느 스터디의 무슨 일인지(studyId·kind)가 들어 있어요", () => {
+  const [m] = push("applied", "x2");
+  assert.equal(m.studyId, "s1");
+  assert.equal(m.kind, "applied");
+});
+
+test("알림함: 새 알림이 맨 앞에 오고, 안 읽음으로 시작하고, 30개까지만 둬요", () => {
+  const msg = { personId: "p5", kind: "applied", studyId: "s1", title: "새 신청이 왔어요", body: "디자인A님이 신청했어요.", url: "/#/s/s1" };
+  let list = R.addNote([], msg, "n1", "2026-10-19T18:00");
+  assert.deepEqual(list, [{ id: "n1", kind: "applied", studyId: "s1", title: "새 신청이 왔어요", body: "디자인A님이 신청했어요.", url: "/#/s/s1", at: "2026-10-19T18:00", read: false }]);
+  list = R.addNote(list, { ...msg, title: "두 번째" }, "n2", "2026-10-19T18:05");
+  assert.deepEqual(list.map((n) => n.id), ["n2", "n1"]);
+  for (let i = 3; i <= 35; i++) list = R.addNote(list, msg, "n" + i, "2026-10-19T19:00");
+  assert.equal(list.length, R.MAX_NOTES);
+  assert.equal(R.MAX_NOTES, 30);
+  assert.equal(list[0].id, "n35");
+  assert.ok(!list.some((n) => n.id === "n1")); // 오래된 것부터 빠져요
+});
+
+test("알림함: 고른 알림이나 모두를 읽음으로 바꾸고, 안 읽은 개수를 세요", () => {
+  const msg = { personId: "p5", kind: "applied", studyId: "s1", title: "t", body: "b", url: "/#/s/s1" };
+  let list = R.addNote(R.addNote(R.addNote([], msg, "n1", "a"), { ...msg, studyId: "s2", url: "/#/s/s2" }, "n2", "b"), msg, "n3", "c");
+  assert.equal(R.unreadCount(list), 3);
+  assert.deepEqual(R.unreadFor(list, "s1"), ["n3", "n1"]); // 이 스터디 상세를 열면 읽음으로 바꿀 알림
+  list = R.markRead(list, ["n1", "zz"]); // 없는 id는 그냥 넘어가요
+  assert.equal(R.unreadCount(list), 2);
+  assert.deepEqual(R.unreadFor(list, "s1"), ["n3"]);
+  list = R.markRead(list, "all");
+  assert.equal(R.unreadCount(list), 0);
+  assert.deepEqual(R.unreadFor(list, "s2"), []);
+});
