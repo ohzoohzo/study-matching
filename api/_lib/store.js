@@ -2,7 +2,7 @@
 // 배포에서는 Vercel Storage에 붙인 Upstash Redis를 쓰고, 테스트에서는 메모리 저장소를 써요.
 //
 // Redis 키 (<환경>은 prod · preview · development라서 vercel dev로 확인해도 실제 데이터와 섞이지 않아요)
-//   recruit:<환경>:people   해시  사람 id → {id, name, role} JSON (이메일은 두지 않아요)
+//   recruit:<환경>:people   해시  사람 id → {id, name, role, tags} JSON (tags는 # 없는 해시태그 목록, 예전 프로필에는 없어요. 이메일은 두지 않아요)
 //   recruit:<환경>:studies  해시  스터디 id → 스터디 JSON
 //   recruit:<환경>:apps     해시  신청 id → 신청 JSON
 //   recruit:<환경>:subs     해시  사람 id → 브라우저 푸시 구독 목록 JSON (기기마다 하나, 공개 목록 state에는 나오지 않아요)

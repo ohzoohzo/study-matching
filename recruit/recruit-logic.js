@@ -1,6 +1,6 @@
 // 공지용 스터디 모집 규칙. 화면(recruit.js)·서버 함수(api/_lib/recruit.js)·테스트가 같이 써요.
 // 구성원이 구글로 로그인해 스터디를 열고(이름·요일·목표) → 다른 사람이 신청하고 → 모집자가 수락하면 함께해요.
-// 주제는 따로 고르지 않고 스터디 이름에 적어요.
+// 주제는 따로 고르지 않고 스터디 이름에 적어요. 기수·관심사는 프로필과 스터디의 해시태그로 적고, 목록 검색에서 #태그로 찾아요.
 // 모집자는 마감·다시 열기·모집 취소·내보내기를, 신청자는 대기 중인 신청 거두기와 수락된 뒤 스스로 나가기를 할 수 있어요.
 // 취소·거두기는 지우지 않고 표시만 남겨요(study.canceled, application.status "withdrawn"). 함께하던 사람이 "취소됨"을 볼 수 있어요.
 
@@ -34,6 +34,34 @@ export function validateTimes(times, days) {
   return "";
 }
 const orderTimes = (times) => TIMES.filter((t) => (times || []).includes(t));
+
+// 해시태그: 프로필과 스터디에 여러 개 달 수 있어요(선택). 기수도 "#프리온보딩7기"처럼 태그로 적어요.
+// 저장은 # 없이 하고, 같은 태그인지는 대소문자를 가리지 않고 봐요("React"와 "react"는 같아요).
+export const MAX_TAGS = 10;
+export const TAG_MAX_LEN = 20;
+const TAG_RE = new RegExp("^[\\p{L}\\p{N}_]{1," + TAG_MAX_LEN + "}$", "u"); // 글자·숫자·_만 (이모지·기호는 안 돼요)
+const TAG_ERR = { shape: "해시태그를 다시 확인해 주세요.", many: "해시태그는 " + MAX_TAGS + "개까지 달 수 있어요.", chars: "해시태그는 글자·숫자·_로 " + TAG_MAX_LEN + "자까지 적어 주세요." };
+// 다듬기: 띄어쓰기를 모두 지우고 앞에 붙은 #(전각 ＃ 포함)을 떼요. 대소문자는 적은 그대로 둬요
+export const normalizeTag = (raw) => String(raw == null ? "" : raw).normalize("NFC").replace(/\s+/g, "").replace(/^[#＃]+/, "");
+export const tagKey = (tag) => normalizeTag(tag).toLowerCase();
+// 태그가 없는 예전 프로필·스터디는 빈 목록으로 봐요
+export const tagsOf = (x) => (x && Array.isArray(x.tags) ? x.tags : []);
+// 정리: 다듬고, 빈 것과 중복(먼저 적은 것만 남겨요)을 빼요
+export function cleanTags(list) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : []).map(normalizeTag).filter((t) => t && !seen.has(tagKey(t)) && seen.add(tagKey(t)));
+}
+// 해시태그 검사: 안 달아도 돼요. 틀리면 이유, 맞으면 "" (서버도 써요)
+export function validateTags(list) {
+  if (list == null) return "";
+  if (!Array.isArray(list) || list.some((t) => typeof t !== "string")) return TAG_ERR.shape;
+  const tags = cleanTags(list);
+  if (tags.length > MAX_TAGS) return TAG_ERR.many;
+  if (tags.some((t) => !TAG_RE.test(t))) return TAG_ERR.chars;
+  return "";
+}
+// 입력칸 글자 → 태그 목록: 쉼표와 #에서 나눠요. 띄어쓰기로는 나누지 않아요("프리온보딩 7기" → "프리온보딩7기")
+export const parseTagInput = (text) => String(text == null ? "" : text).split(/[,，#＃]/).map(normalizeTag).filter(Boolean);
 
 // 일정: 모집 마감일(deadline)·스터디 시작일(startDate)·종료일(endDate). 모두 선택이고 "2026-10-25"처럼 한국 날짜로 저장해요.
 // 오늘(today)을 바깥에서 받을 수 있게 해서 같은 입력이면 늘 같은 결과가 나와요. 안 주면 지금 한국 날짜를 써요.
@@ -73,6 +101,8 @@ export function validateStudy(s, today) {
   if (today && d("endDate") && !e.endDate && d("endDate") < today) e.endDate = "종료일은 오늘이거나 뒤여야 해요.";
   const cap = Number(s.capacity);
   if (!Number.isInteger(cap) || cap < 2 || cap > MAX_CAPACITY) e.capacity = "정원은 2~" + MAX_CAPACITY + "명 사이로 골라 주세요.";
+  const tg = validateTags(s.tags); // 해시태그(선택)
+  if (tg) e.tags = tg;
   return e;
 }
 
@@ -81,6 +111,8 @@ export function validateProfile(p) {
   const name = String(p.name || "").trim();
   if (name.length < 2 || name.length > 12) e.name = "보여 줄 이름을 2~12자로 적어 주세요.";
   if (!ROLE_LABEL[p.role]) e.role = "직군을 하나 골라 주세요.";
+  const tg = validateTags(p.tags); // 해시태그(선택)
+  if (tg) e.tags = tg;
   return e;
 }
 
@@ -228,14 +260,46 @@ export function sortStudies(studies, apps, people, today = kstToday()) {
   return studies.slice().sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt));
 }
 
-// 검색: 스터디 이름·목표·모집자 이름에 검색어의 낱말이 모두 들어 있으면 찾아요 (영문 대소문자는 가리지 않아요)
+// 검색: 스터디 이름·목표·모집자 이름·해시태그에 검색어의 낱말이 모두 들어 있으면 찾아요 (영문 대소문자는 가리지 않아요)
+// #으로 시작하는 낱말은 스터디 해시태그에서만 찾고, 태그 일부만 맞아도 돼요("#7기" → "#프리온보딩7기")
 const fold = (v) => String(v == null ? "" : v).normalize("NFC").toLowerCase();
+const isTagWord = (w) => /^[#＃]/.test(w);
 export function matchesSearch(study, people, q) {
   const words = fold(q).split(/\s+/).filter(Boolean);
   if (!words.length) return true;
   const leader = people.find((p) => p.id === study.leaderId);
-  const text = fold([study.title, study.goal, leader ? leader.name : ""].join(" "));
-  return words.every((w) => text.includes(w));
+  const tags = tagsOf(study);
+  const text = fold([study.title, study.goal, leader ? leader.name : ""].concat(tags).join(" "));
+  return words.every((w) => {
+    if (!isTagWord(w)) return text.includes(w);
+    const key = tagKey(w);
+    return !key || tags.some((t) => tagKey(t).includes(key));
+  });
+}
+
+// 검색어 안에 이 태그(#태그 낱말)가 통째로 들어 있는지: 칩·카드 태그의 눌림 상태에 써요
+export function tagInQuery(q, tag) {
+  const key = tagKey(tag);
+  return String(q || "").split(/\s+/).some((w) => isTagWord(w) && tagKey(w) === key);
+}
+// 칩·카드 태그를 누르면 검색어에 #태그를 넣거나(없을 때) 빼요(있을 때)
+export function toggleTagInQuery(q, tag) {
+  const words = String(q || "").split(/\s+/).filter(Boolean);
+  if (tagInQuery(q, tag)) return words.filter((w) => !(isTagWord(w) && tagKey(w) === tagKey(tag))).join(" ");
+  return words.concat("#" + normalizeTag(tag)).join(" ");
+}
+
+// 많이 쓰는 태그: 사람과 취소되지 않은 스터디가 단 태그를 세서 많은 순(같으면 가나다순)으로 줘요. 입력칸 아래 추천에 써요
+export function tagSuggestions(people, studies, { exclude = [], limit = 8 } = {}) {
+  const skip = new Set(exclude.map(tagKey));
+  const count = new Map(); // tagKey → { tag: 처음 본 모양, n }
+  people.concat(studies.filter((s) => !s.canceled)).forEach((x) => cleanTags(tagsOf(x)).forEach((t) => {
+    const k = tagKey(t);
+    if (skip.has(k)) return;
+    const c = count.get(k) || { tag: t, n: 0 };
+    c.n += 1; count.set(k, c);
+  }));
+  return [...count.values()].sort((a, b) => b.n - a.n || a.tag.localeCompare(b.tag, "ko")).slice(0, limit).map((c) => c.tag);
 }
 
 // 목록에 보여 줄 스터디: 취소한 스터디는 빼고, 검색어·"모집 중만"·"이 직군이 비어 있는 스터디"를 함께 걸러 정렬해요

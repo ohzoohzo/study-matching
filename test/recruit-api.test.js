@@ -81,9 +81,9 @@ test("사람 id는 me-g + 구글 sub이고, 같은 계정이면 프로필이 이
   assert.equal(r.body.account.name, "구글 이름 A");
   r = await call(meApi, "PUT", { token: "tokA", body: { name: "  모집자A ", role: "dev", id: "me-g999" } });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.body.person, { id: "me-g111", name: "모집자A", role: "dev" });
+  assert.deepEqual(r.body.person, { id: "me-g111", name: "모집자A", role: "dev", tags: [] });
   r = await call(meApi, "GET", { token: "tokA" });
-  assert.deepEqual(r.body.person, { id: "me-g111", name: "모집자A", role: "dev" });
+  assert.deepEqual(r.body.person, { id: "me-g111", name: "모집자A", role: "dev", tags: [] });
   // 이메일은 저장하지 않아요
   const s = await call(stateApi, "GET");
   assert.ok(!JSON.stringify(s.body).includes("a@example.com"));
@@ -668,4 +668,41 @@ test("테스트 알림: 내용에 시험용 표시(test)와 구분용 tag가 있
   assert.equal(call.sent[0].url, "/#/");
   const off = setup({ noPush: true });
   assert.equal((await off(pushApi, "POST", { token: "tokA", body: { test: true } })).status, 503);
+});
+
+test("프로필 해시태그: 다듬어 저장하고, 안 보내면 이미 있는 태그를 그대로 둬요", async () => {
+  const call = setup();
+  let r = await call(meApi, "PUT", { token: "tokA", body: { name: "모집자A", role: "dev", tags: [" #프리온보딩 7기", "React", "react"] } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.person.tags, ["프리온보딩7기", "React"]);
+  r = await call(meApi, "PUT", { token: "tokA", body: { name: "모집자A2", role: "dev" } });
+  assert.deepEqual(r.body.person.tags, ["프리온보딩7기", "React"]);
+  r = await call(meApi, "PUT", { token: "tokA", body: { name: "모집자A2", role: "dev", tags: [] } });
+  assert.deepEqual(r.body.person.tags, []);
+  const s = await call(stateApi, "GET");
+  assert.deepEqual(s.body.people.find((p) => p.id === "me-g111").tags, []);
+});
+
+test("프로필 해시태그가 틀리면 400과 fields.tags이고, 저장하지 않아요", async () => {
+  const call = setup();
+  await call(meApi, "PUT", { token: "tokA", body: { name: "모집자A", role: "dev", tags: ["7기"] } });
+  for (const tags of [["<b>"], "7기", Array.from({ length: 11 }, (_, i) => "t" + i), Array.from({ length: 51 }, () => "a")]) {
+    const r = await call(meApi, "PUT", { token: "tokA", body: { name: "모집자A", role: "dev", tags } });
+    assert.equal(r.status, 400, JSON.stringify(tags).slice(0, 30));
+    assert.ok(r.body.fields.tags);
+  }
+  assert.deepEqual((await call(meApi, "GET", { token: "tokA" })).body.person.tags, ["7기"]);
+});
+
+test("스터디 해시태그: 열 때 다듬어 저장하고, 안 보내면 빈 목록이에요", async () => {
+  const call = setup();
+  await withPeople(call);
+  let r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, tags: ["#프리온보딩7기", "주말"] } });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.study.tags, ["프리온보딩7기", "주말"]);
+  r = await call(studiesApi, "POST", { token: "tokA", body: study });
+  assert.deepEqual(r.body.study.tags, []);
+  r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, tags: ["c++"] } });
+  assert.equal(r.status, 400);
+  assert.ok(r.body.fields.tags);
 });

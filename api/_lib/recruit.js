@@ -49,12 +49,23 @@ export async function getMe(store, user) {
   };
 }
 
+// 해시태그(선택): 안 보내면 fallback을 써요. 검사는 recruit-logic이 하고, 너무 큰 목록만 여기서 먼저 막아요
+const TAGS_BAD = "해시태그를 다시 확인해 주세요.";
+function readTags(body, fallback) {
+  if (body.tags === undefined) return fallback;
+  if (Array.isArray(body.tags) && body.tags.length > 50) throw new HttpError(400, TAGS_BAD, { tags: TAGS_BAD });
+  return body.tags;
+}
+
 export async function saveMe(store, user, body) {
-  const person = { id: user.id, name: text(body.name).trim(), role: text(body.role) };
-  invalid(R.validateProfile(person), "이름과 직군을 확인해 주세요.");
   const state = await store.load();
+  const known = state.people.find((p) => p.id === user.id);
+  const tags = readTags(body, R.tagsOf(known)); // 안 보내면 이미 단 태그를 그대로 둬요
+  const person = { id: user.id, name: text(body.name).trim(), role: text(body.role), tags };
+  const e = R.validateProfile(person);
+  invalid(e, Object.keys(e).length === 1 && e.tags ? e.tags : "이름과 직군을 확인해 주세요.");
+  person.tags = R.cleanTags(tags);
   await store.put("people", person);
-  const known = state.people.some((p) => p.id === person.id);
   return { person, state: { ...state, people: known ? replace(state.people, person) : state.people.concat(person) } };
 }
 
@@ -64,10 +75,11 @@ export async function createStudy(store, user, body) {
   const days = Array.isArray(body.days) ? body.days.map(String) : [];
   const times = body.times === undefined ? [] : body.times; // 진행 시간대(선택). 검사는 recruit-logic이 해요
   const date = (v) => (v == null || v === "" ? null : v); // 일정(선택): 비우면 null
+  const tags = readTags(body, []); // 해시태그(선택)
   const s = { title: text(body.title).trim(), days, times, mode: text(body.mode), capacity: Number(body.capacity), goal: text(body.goal).trim(),
-    deadline: date(body.deadline), startDate: date(body.startDate), endDate: date(body.endDate) };
+    deadline: date(body.deadline), startDate: date(body.startDate), endDate: date(body.endDate), tags };
   invalid(R.validateStudy(s, R.kstToday()), "입력한 내용을 확인해 주세요.");
-  const study = { id: await store.nextId("s"), ...s, days: R.DAYS.filter((d) => days.includes(d)), times: R.TIMES.filter((t) => times.includes(t)), leaderId: user.id, closed: false, createdAt: kstMinute() };
+  const study = { id: await store.nextId("s"), ...s, days: R.DAYS.filter((d) => days.includes(d)), times: R.TIMES.filter((t) => times.includes(t)), tags: R.cleanTags(tags), leaderId: user.id, closed: false, createdAt: kstMinute() };
   await store.put("studies", study);
   return { study, state: { ...state, studies: state.studies.concat(study) } };
 }
