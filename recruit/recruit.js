@@ -2,6 +2,7 @@
 // 스터디·신청·프로필은 서버(/api/recruit → Vercel Storage의 Redis)에 있어서 여러 사람이 같은 목록을 봐요.
 // 이 브라우저에는 로그인 확인용 구글 토큰만 만료(1시간)까지 둬요. 서버가 쓰기 요청마다 이 토큰을 검증해요.
 // 목록 검색, 모집 마감·다시 열기·모집 취소(모집자), 신청 취소(신청자)는 모두 recruit-logic 규칙을 따르고 서버가 한 번 더 막아요.
+// 프로필 창에서 이 기기 브라우저 푸시 알림을 켜면 /sw.js가 알림을 받아 보여 줘요.
 import * as R from "/recruit/recruit-logic.js";
 
 const AUTH_KEY = "study-recruit:auth";
@@ -110,6 +111,7 @@ const ICON = {
   search: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>',
   block: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.902 7.902 0 0 1 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.902 7.902 0 0 1 20 12c0 4.42-3.58 8-8 8z"/></svg>',
   replay: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>',
+  bell: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>',
   info: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>',
 };
 
@@ -211,6 +213,49 @@ function mountGoogle() {
 }
 new MutationObserver(mountGoogle).observe(document.body, { childList: true, subtree: true });
 
+// ---------- 브라우저 푸시 알림 (이 기기) ----------
+// pushState: "" 확인 전 · unsupported 이 브라우저는 못 받음 · off 서버에 알림 키가 없음 · denied 브라우저 설정에서 막힘
+//            · on 이 기기에서 받는 중 · ready 켤 수 있음 · error 확인 실패
+let pushState = "";
+let pushKey = null; // 서버가 준 VAPID 공개키 ("": 알림 꺼진 서버)
+const canPush = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+async function pushSub() {
+  const reg = await navigator.serviceWorker.getRegistration("/");
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+async function checkPush() {
+  if (!canPush()) pushState = "unsupported";
+  else {
+    try {
+      if (pushKey === null) { const d = await api("GET", "push"); pushKey = d && d.enabled ? d.publicKey : ""; }
+      if (!pushKey) pushState = "off";
+      else if (Notification.permission === "denied") pushState = "denied";
+      else pushState = (await pushSub()) ? "on" : "ready";
+    } catch (e) { pushState = "error"; }
+  }
+  const box = document.getElementById("pushBox");
+  if (box) box.outerHTML = pushBox(); // 프로필 창의 알림 칸만 바꿔요 (입력 중인 이름은 그대로예요)
+}
+// VAPID 공개키(base64url) → 바이트
+function keyBytes(s) {
+  const b = atob((s + "=".repeat((4 - (s.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+function pushBox() {
+  const btn = (act, label, cls = "btn-outline") => '<div class="actions"><button type="button" class="btn ' + cls + ' btn-sm" data-act="' + act + '">' + label + "</button></div>";
+  const [text, action] = {
+    "": ["알림 설정을 확인하고 있어요.", ""],
+    unsupported: [IOS ? "아이폰·아이패드는 사파리 공유 버튼에서 ‘홈 화면에 추가’를 한 뒤, 그 앱에서 알림을 켤 수 있어요." : "이 브라우저는 알림을 지원하지 않아요.", ""],
+    off: ["알림은 아직 준비 중이에요.", ""],
+    error: ["알림 설정을 확인하지 못했어요.", btn("push-check", "다시 확인")],
+    denied: ["브라우저 설정에서 이 사이트 알림이 막혀 있어요. 설정에서 허용한 뒤 다시 확인해 주세요.", btn("push-check", "다시 확인")],
+    on: ["이 기기에서 새 신청·수락 같은 소식을 알림으로 받고 있어요.", btn("push-off", "이 기기 알림 끄기")],
+    ready: ["새 신청이나 수락·거절 소식을 사이트를 닫아 둬도 이 기기 알림으로 받아요.", btn("push-on", ICON.bell + "이 기기에서 알림 받기", "btn-primary")],
+  }[pushState] || ["", ""];
+  return '<div id="pushBox" class="push-box" aria-live="polite"><span class="t-label1" style="font-weight:600">알림</span><p class="note t-caption1">' + text + "</p>" + action + "</div>";
+}
+
 // ---------- 나 (프로필) ----------
 let pdraft = { name: "", role: "" };
 let perrors = {};
@@ -242,7 +287,7 @@ function renderMe() {
   document.getElementById("meLabel").textContent = m ? m.name + " · " + R.ROLE_LABEL[m.role] : "로그인";
   mePanel.innerHTML = m
     ? '<div><h2 class="t-headline1">내 프로필</h2><p class="me-now t-body2"><b>' + esc(m.name) + '</b><span class="tag">' + R.ROLE_LABEL[m.role] + "</span></p></div>" +
-      profileForm("nav") + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">로그아웃</button>'
+      profileForm("nav") + '<hr class="divider">' + pushBox() + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">로그아웃</button>'
     : account()
       ? '<div><h2 class="t-headline1">이름과 직군 정하기</h2><p class="note t-caption1">저장하면 스터디를 열거나 신청할 수 있어요.</p></div>' + profileForm("nav") + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">다른 계정으로 로그인</button>'
       : '<div><h2 class="t-headline1">구글로 로그인</h2><p class="note t-caption1">로그인하면 스터디를 열거나 신청할 수 있어요.</p></div>' + googleBox();
@@ -250,6 +295,7 @@ function renderMe() {
 
 function openPanel(focus = true) {
   mePanel.hidden = false; meBtn.setAttribute("aria-expanded", "true");
+  if (me()) checkPush();
   if (focus) { const f = mePanel.querySelector("input, select"); if (f) f.focus(); }
 }
 function closePanel(returnFocus) {
@@ -760,10 +806,45 @@ document.addEventListener("click", (e) => {
       });
       return;
     }
+    if (b.dataset.act === "push-check") { checkPush(); return; }
+    if (b.dataset.act === "push-on") {
+      run(b, "켜는 중…", async () => {
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") { await checkPush(); toast(perm === "denied" ? "알림이 막혔어요. 브라우저 설정에서 허용해 주세요." : "알림을 켜지 않았어요."); return; }
+        let sub;
+        try {
+          const reg = await navigator.serviceWorker.register("/sw.js");
+          await navigator.serviceWorker.ready;
+          sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(pushKey) }));
+        } catch (err) { throw new Error("이 브라우저에서 알림을 켜지 못했어요. 크롬·엣지·파이어폭스에서 다시 해 보세요."); }
+        await api("POST", "push", { subscription: sub.toJSON() });
+        await checkPush();
+        toast("이 기기에서 알림을 받아요.");
+      });
+      return;
+    }
+    if (b.dataset.act === "push-off") {
+      run(b, "끄는 중…", async () => {
+        const sub = await pushSub();
+        if (sub) {
+          // 서버에서 못 지워도 괜찮아요: 브라우저 구독을 끊으면 다음 알림 때 서버가 사라진 구독(410)으로 보고 지워요
+          await api("DELETE", "push", { endpoint: sub.endpoint }).catch(() => {});
+          await sub.unsubscribe();
+        }
+        await checkPush();
+        toast("이 기기 알림을 껐어요.");
+      });
+      return;
+    }
     if (b.dataset.act === "logout") {
-      saveAuth(null); expired = false; pdraft = { name: "", role: "" }; perrors = {};
-      try { window.google.accounts.id.disableAutoSelect(); } catch (err) { /* 구글 스크립트가 없어도 로그아웃돼요 */ }
-      closePanel(false); refresh(); toast("로그아웃했어요.");
+      run(b, "로그아웃하는 중…", async () => {
+        // 같은 기기를 다른 사람이 쓸 수 있어서, 로그아웃하면 이 기기 알림도 꺼요
+        const sub = canPush() ? await pushSub().catch(() => null) : null;
+        if (sub) { await api("DELETE", "push", { endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
+        saveAuth(null); expired = false; pdraft = { name: "", role: "" }; perrors = {}; pushState = "";
+        try { window.google.accounts.id.disableAutoSelect(); } catch (err) { /* 구글 스크립트가 없어도 로그아웃돼요 */ }
+        closePanel(false); refresh(); toast("로그아웃했어요.");
+      });
       return;
     }
   } catch (err) { toast(err.message); }

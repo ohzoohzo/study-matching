@@ -71,6 +71,7 @@ npm test             # 기획안·모집 규칙과 서버 함수 검사 (Node 20
 - 시간대는 기획안과 같은 6개(평일 낮·저녁·밤, 주말 오전·오후·저녁)예요. 스터디를 열 때 진행 시간대를, 신청할 때 내가 가능한 시간대를 여러 개 고를 수 있고, 둘 다 안 골라도 돼요(안 고른 스터디는 "시간은 모여서 정해요"). 고른 요일에 맞는 시간대만 보여요(화·목 → 평일 셋). 모집자 상세 화면에는 시간대마다 수락된 사람·대기 중인 사람이 몇 명인지 겹침 요약이 보여요.
 - 모집 취소는 스터디를 지우지 않고 `canceled`로 남겨요. 목록·검색에서 빠지고, 함께하기로 했거나 대기 중이던 사람은 "내 스터디"와 상세 화면에서 "모집자가 취소했어요"를 봐요. 되돌릴 수 없어서 확인 창을 먼저 띄워요.
 - 신청 취소는 대기 중인 신청만 할 수 있고, 신청을 `withdrawn`으로 남겨요. 모집자 화면에서 빠지고, 나중에 다시 신청할 수 있어요.
+- **브라우저 푸시 알림**: 오른쪽 위 프로필 창에서 "이 기기에서 알림 받기"를 누르면 사이트를 닫아 둬도 알림이 와요. 모집자는 새 신청·신청 취소·나감을, 신청자는 수락·거절·내보내짐·모집 취소를 받아요. 알림을 누르면 그 스터디로 가요. 아이폰·아이패드는 사파리에서 "홈 화면에 추가"한 앱에서만 켤 수 있어요. 알림을 못 보내도 신청·수락 같은 동작은 그대로 돼요.
 - 수락된 사람은 스스로 나갈 수 있어요(`left`, 다시 신청 가능). 모집자는 수락된 사람을 내보낼 수 있어요(`removed`, 같은 스터디에 다시 신청 불가). 둘 다 자리가 하나 비고, 되돌릴 수 없어서 확인 창을 먼저 띄워요. 대기 중인 신청은 나가기 대신 신청 취소, 내보내기 대신 거절을 써요.
 - 권장 주제(강사님 주제1~7) 고르기는 뺐어요. 무엇을 공부하는지는 스터디 이름에 적어요.
 - 구글 로그인은 클라이언트 ID(공개값)만 써요. 시크릿은 쓰지 않아요. 서버 함수가 쓰기 요청마다 구글 ID 토큰을 `google-auth-library`의 `verifyIdToken`으로 검증하고, 확인된 계정 번호로 `"me-g"+sub`를 내 id로 써요.
@@ -91,20 +92,28 @@ npm test             # 기획안·모집 규칙과 서버 함수 검사 (Node 20
 | `PATCH /api/recruit/apps/:id` `{ status: "withdrawn" }` | 신청 취소 (대기 중일 때만) | 신청한 본인만 |
 | `PATCH /api/recruit/apps/:id` `{ status: "left" }` | 스스로 나가기 (수락된 뒤) | 수락된 본인만 |
 | `PATCH /api/recruit/apps/:id` `{ status: "removed" }` | 내보내기 (수락된 사람) | 모집자만 |
+| `GET /api/recruit/push` | 알림 공개키와 알림이 켜진 서버인지(`enabled`) | 누구나 |
+| `POST /api/recruit/push` `{ subscription }` · `DELETE /api/recruit/push` `{ endpoint }` | 이 기기 알림 켜기·끄기 (브라우저 회사의 푸시 서버 주소만 받아요, 한 사람에 5대까지) | 로그인한 나 |
 
 - 규칙은 화면과 같은 `recruit/recruit-logic.js`를 서버에서도 그대로 써요. 모집자 확인도 `canManage`로 서버에서 막아요.
 - 같은 스터디의 신청·수락·마감·다시 열기·모집 취소·신청 취소는 Redis 잠금으로 한 번에 하나씩 처리해서, 동시에 눌러도 정원을 넘지 않고 수락과 신청 취소가 겹치지 않아요.
 - Redis 키는 `recruit:prod:…`(배포), `recruit:development:…`(vercel dev)처럼 환경마다 나뉘어 있어서 로컬 확인이 실제 데이터와 섞이지 않아요.
+- 푸시 구독은 `recruit:<환경>:subs`에 사람별로 두고, 공개 목록(`GET /api/recruit/state`)에는 넣지 않아요. 누구에게 무엇을 보낼지는 `recruit-logic.js`의 `pushMessages`가 정해요.
+- 푸시를 켜려면 Vercel 환경변수에 `VAPID_PUBLIC_KEY`·`VAPID_PRIVATE_KEY`를 넣어요(`npx web-push generate-vapid-keys`로 만들어요). 없으면 알림 칸에 "준비 중"이 보이고 다른 기능은 그대로예요. 비밀키는 코드에 넣지 않아요.
 
 ```bash
 vercel env pull .env.local                               # Redis 환경변수 받기 (.env*는 git에 올리지 않아요)
 npm test                                                 # 규칙·서버 함수 테스트 (메모리 저장소)
 node --env-file=.env.local --test test/recruit-redis.test.js   # 실제 Redis로 저장·읽기 확인
 RECRUIT_DEV_AUTH=1 vercel dev                            # 로컬 확인: "dev:<번호>:<이름>" 토큰으로 두 사람 흐름 확인 (배포에서는 꺼져 있어요)
+set -a; . ./.env.local; set +a; RECRUIT_DEV_AUTH=1 vercel dev   # .env.local의 VAPID 키까지 쓰려면 이렇게 띄워요
 ```
 
 ## 사용한 스킬과 프롬프트
 
+- 브라우저 푸시 알림 (feat/recruit-push)
+  - 스킬: `superpowers:brainstorming`(슬랙 연동·사이트 안 알림·브라우저 푸시 중 고르기), `superpowers:test-driven-development`, `superpowers:verification-before-completion`
+  - 프롬프트: "그리고 slack 채널에 메시지 보내기도 연동할까? 그러면 돈 들어?" → "슬랙까지는 하지 말자" → "알림 기능 하면 웹에서 알림 오는 거지?" → "브라우저 푸시 알림"
 - 나가기·내보내기 (feat/recruit-leave)
   - 스킬: `superpowers:brainstorming`(거절과 내보내기의 차이, 상태를 따로 둘지 정함), `superpowers:test-driven-development`, `superpowers:verification-before-completion`
   - 프롬프트: "그리고 신청자 거절도 가능하게 할까?" → "수락한 사람 내보내기가 거절 아니야?" → "스스로 나가기 만들고 수락한 사람 내보내기도 만들어"

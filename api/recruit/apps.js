@@ -3,6 +3,6 @@ import { handler } from "../_lib/http.js";
 import { applyStudy } from "../_lib/recruit.js";
 
 export const methods = {
-  POST: async ({ store, user, body }) => ({ status: 201, body: await applyStudy(store, await user(), body) }),
+  POST: async ({ store, user, body, notify }) => ({ status: 201, body: await applyStudy(store, await user(), body, notify) }),
 };
 export default handler(methods);

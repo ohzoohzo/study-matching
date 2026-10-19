@@ -8,6 +8,7 @@
   try { if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.dataset.theme = 'dark'; } catch (e) {}
 </script>
 <link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.webmanifest">
 <style>
   /* 메뉴 오른쪽: 나 */
   .nav { position: sticky; }
@@ -20,6 +21,8 @@
   .me-panel select, .select { width: 100%; height: 48px; padding: 0 var(--spacing-12); border: 1px solid var(--line); border-radius: var(--radius-12); background: var(--bg); }
   .me-now { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-6); color: var(--fg-2); }
   .divider { border: 0; border-top: 1px solid var(--line-soft); margin: 0; }
+  .push-box { display: grid; gap: var(--spacing-6); }
+  .push-box .note { margin: 0; }
 
   /* 머리 */
   .head-row { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--spacing-16); }

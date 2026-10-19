@@ -1,0 +1,8 @@
+{
+  "name": "스터디 모집",
+  "short_name": "스터디 모집",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone"
+}

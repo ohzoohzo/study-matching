@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@upstash/redis": "^1.39.0",
-    "google-auth-library": "^10.9.1"
+    "google-auth-library": "^10.9.1",
+    "web-push": "3.6.7"
   }
 }

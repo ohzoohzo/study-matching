@@ -12,6 +12,7 @@ import * as studiesApi from "../api/recruit/studies.js";
 import * as studyApi from "../api/recruit/studies/[id].js";
 import * as appsApi from "../api/recruit/apps.js";
 import * as appApi from "../api/recruit/apps/[id].js";
+import * as pushApi from "../api/recruit/push.js";
 
 // 테스트용 구글 계정: 토큰 문자열 → 구글이 확인해 준 정보
 const ACCOUNTS = {
@@ -24,8 +25,11 @@ async function fakeVerify(token) {
   return ACCOUNTS[token];
 }
 
-function setup() {
-  const deps = { store: memoryStore(), verify: fakeVerify };
+// 푸시는 테스트용으로 바꿔 끼워요: 보낸 알림을 call.sent에 모아요. send를 주면 그걸 쓰고, noPush면 알림 키가 없는 상태예요.
+function setup({ send, noPush = false } = {}) {
+  const sent = [];
+  const push = noPush ? null : { publicKey: "test-public-key", send: send || (async (sub, payload) => { sent.push({ endpoint: sub.endpoint, ...JSON.parse(payload) }); }) };
+  const deps = { store: memoryStore(), verify: fakeVerify, push };
   const call = async function (mod, method, { token, body, query } = {}) {
     const req = { method, headers: token ? { authorization: "Bearer " + token } : {}, body, query: query || {} };
     const res = {
@@ -37,6 +41,7 @@ function setup() {
     return { status: res.statusCode, body: JSON.parse(res.data), headers: res.headers };
   };
   call.store = deps.store; // 날짜가 지난 상황처럼 저장소를 직접 바꿀 때만 써요
+  call.sent = sent;
   return call;
 }
 
@@ -473,4 +478,106 @@ test("모집자가 내보내는 순간 본인이 나가도 둘 중 하나만 돼
     call(appApi, "PATCH", { token: "tokB", query: { id: b.id }, body: { status: "left" } }),
   ]);
   assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+});
+
+// ---------- 브라우저 푸시 알림 ----------
+const sub = (n, host = "fcm.googleapis.com") => ({ endpoint: "https://" + host + "/send/" + n, keys: { p256dh: "p" + n, auth: "a" + n } });
+
+test("알림 설정: 공개키는 누구나 받고, 구독은 로그인한 나만 저장·삭제해요 (공개 목록에는 안 나와요)", async () => {
+  const call = setup();
+  let r = await call(pushApi, "GET");
+  assert.deepEqual(r.body, { publicKey: "test-public-key", enabled: true });
+  assert.equal((await call(pushApi, "POST", { body: { subscription: sub(1) } })).status, 401);
+  assert.equal((await call(pushApi, "DELETE", { body: { endpoint: sub(1).endpoint } })).status, 401);
+  r = await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(1) } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.devices, 1);
+  r = await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(1) } }); // 같은 기기는 한 번만
+  assert.equal(r.body.devices, 1);
+  r = await call(pushApi, "POST", { token: "tokA", body: { subscription: { ...sub(2), expirationTime: null, extra: "x" } } });
+  assert.equal(r.body.devices, 2);
+  assert.deepEqual(await call.store.getSubs("me-g111"), [sub(1), sub(2)]); // 주소와 키 두 개만 남겨요
+  const st = await call(stateApi, "GET");
+  assert.ok(!JSON.stringify(st.body).includes("googleapis"));
+  r = await call(pushApi, "DELETE", { token: "tokA", body: { endpoint: sub(1).endpoint } });
+  assert.equal(r.body.devices, 1);
+  assert.deepEqual(await call.store.getSubs("me-g111"), [sub(2)]);
+});
+
+test("알림 설정: 브라우저 회사의 푸시 서버 주소만 받아요", async () => {
+  const call = setup();
+  const bad = [null, {}, { endpoint: "https://fcm.googleapis.com/x" }, sub(1, "evil.example.com"), { ...sub(1), endpoint: "http://fcm.googleapis.com/x" }, sub(1, "fcm.googleapis.com.evil.com"), sub(1, "localhost")];
+  for (const s of bad) assert.equal((await call(pushApi, "POST", { token: "tokA", body: { subscription: s } })).status, 400, JSON.stringify(s));
+  for (const host of ["web.push.apple.com", "updates.push.services.mozilla.com", "wns2-by3p.notify.windows.com"]) {
+    assert.equal((await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(9, host) } })).status, 200, host);
+  }
+});
+
+test("알림 설정: 기기는 5대까지 저장하고 오래된 것부터 빼요", async () => {
+  const call = setup();
+  for (let n = 1; n <= 6; n++) await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(n) } });
+  assert.deepEqual((await call.store.getSubs("me-g111")).map((x) => x.endpoint), [2, 3, 4, 5, 6].map((n) => sub(n).endpoint));
+});
+
+test("알림 키가 없으면 enabled: false이고 구독을 503으로 받지 않아요 (다른 동작은 그대로예요)", async () => {
+  const call = setup({ noPush: true });
+  assert.deepEqual((await call(pushApi, "GET")).body, { publicKey: null, enabled: false });
+  assert.equal((await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(1) } })).status, 503);
+  await withPeople(call);
+  assert.equal((await call(studiesApi, "POST", { token: "tokA", body: study })).status, 201);
+});
+
+test("신청하면 모집자의 기기마다, 수락하면 신청자에게 알림이 가요 (일한 사람 자신에게는 안 가요)", async () => {
+  const call = setup();
+  await withPeople(call);
+  await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(1) } });
+  await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(2) } });
+  await call(pushApi, "POST", { token: "tokB", body: { subscription: sub(3) } });
+  const s = (await call(studiesApi, "POST", { token: "tokA", body: study })).body.study;
+  assert.deepEqual(call.sent, []); // 스터디를 연 것만으로는 안 보내요
+  const app = (await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id, message: "같이 해요" } })).body.app;
+  assert.deepEqual(call.sent.map((x) => x.endpoint).sort(), [sub(1).endpoint, sub(2).endpoint]);
+  assert.match(call.sent[0].title, /새 신청/);
+  assert.match(call.sent[0].body, /신청자B님/);
+  assert.equal(call.sent[0].url, "/#/s/" + s.id);
+  call.sent.length = 0;
+  await call(appApi, "PATCH", { token: "tokA", query: { id: app.id }, body: { status: "accepted" } });
+  assert.deepEqual(call.sent.map((x) => x.endpoint), [sub(3).endpoint]);
+  assert.match(call.sent[0].title, /수락/);
+});
+
+test("모집 취소·내보내기·나가기 알림이 받을 사람에게 가요", async () => {
+  const call = setup();
+  const { s, b, c } = await studyWithApps(call); // A 모집자, B 수락, C 대기
+  for (const [tok, n] of [["tokA", 1], ["tokB", 2], ["tokC", 3]]) await call(pushApi, "POST", { token: tok, body: { subscription: sub(n) } });
+  await call(appApi, "PATCH", { token: "tokB", query: { id: b.id }, body: { status: "left" } });
+  assert.deepEqual(call.sent.map((x) => [x.endpoint, x.title]), [[sub(1).endpoint, "함께하던 사람이 나갔어요"]]);
+  call.sent.length = 0;
+  await call(appApi, "PATCH", { token: "tokA", query: { id: c.id }, body: { status: "accepted" } });
+  call.sent.length = 0;
+  await call(appApi, "PATCH", { token: "tokA", query: { id: c.id }, body: { status: "removed" } });
+  assert.deepEqual(call.sent.map((x) => x.endpoint), [sub(3).endpoint]);
+  call.sent.length = 0;
+  const again = (await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } })).body.app; // B가 다시 신청(대기)
+  call.sent.length = 0;
+  await call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body: { canceled: true } });
+  assert.deepEqual(call.sent.map((x) => x.endpoint), [sub(2).endpoint]); // 대기 중인 B에게만 (내보내진 C에게는 안 가요)
+  assert.ok(again);
+});
+
+test("사라진 구독(404·410)은 지우고, 알림이 실패해도 신청은 돼요", async () => {
+  const call = setup({
+    send: async (s) => {
+      const e = new Error(s.endpoint.endsWith("/1") ? "gone" : "network");
+      if (s.endpoint.endsWith("/1")) e.statusCode = 410;
+      throw e;
+    },
+  });
+  await withPeople(call);
+  await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(1) } });
+  await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(2) } });
+  const s = (await call(studiesApi, "POST", { token: "tokA", body: study })).body.study;
+  const r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } });
+  assert.equal(r.status, 201);
+  assert.deepEqual((await call.store.getSubs("me-g111")).map((x) => x.endpoint), [sub(2).endpoint]); // 410만 지우고, 잠깐의 네트워크 오류는 남겨요
 });
