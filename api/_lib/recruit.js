@@ -1,6 +1,7 @@
 // 스터디 모집 서버 동작. 규칙 판단은 화면과 같은 recruit/recruit-logic.js가 하고, 여기서는 확인·저장만 해요.
 // 쓰기는 모두 로그인한 사람(user: 서버가 확인한 구글 계정)으로만 해요. 화면이 보낸 사람 id는 믿지 않아요.
 // 쓰고 나면 바뀐 전체 상태(state)를 함께 돌려줘서 화면이 한 번 더 부르지 않아도 돼요.
+import { randomUUID } from "node:crypto";
 import * as R from "../../recruit/recruit-logic.js";
 import { HttpError } from "./errors.js";
 
@@ -183,4 +184,30 @@ export async function removeApp(store, user, id, notify = noop) {
     return saveApp(store, state, rule(() => R.removeMember(s, state.apps, user.id, id)), id);
   });
   return announce(out, "removed", notify);
+}
+
+// 회원 탈퇴(로그인한 나만): 내가 연 스터디는 모집 취소, 내 신청은 신청 취소·나감으로 바꾸고 기록 속 내 id를 임시 번호로 바꿔요.
+// 관련된 스터디마다 잠금을 잡고 그 스터디 기록만 바꿔요. 프로필·푸시 구독·알림함은 마지막에 지우고, 알림은 잠금이 풀린 뒤 보내요.
+export async function deleteMe(store, user, notify = noop) {
+  const gone = "gone-" + randomUUID().slice(0, 12);
+  const at = kstMinute();
+  const first = await store.load();
+  const ids = [...new Set(first.studies.filter((s) => s.leaderId === user.id).map((s) => s.id)
+    .concat(first.apps.filter((a) => a.personId === user.id).map((a) => a.studyId)))];
+  const messages = [];
+  for (const sid of ids) {
+    await store.withLock("study:" + sid, async () => {
+      const state = await store.load();
+      const part = { studies: state.studies.filter((s) => s.id === sid), apps: state.apps.filter((a) => a.studyId === sid), people: state.people };
+      const out = R.deleteAccount(part, user.id, gone, at);
+      for (const id of out.changed.studies) await store.put("studies", out.studies.find((s) => s.id === id));
+      for (const id of out.changed.apps) await store.put("apps", out.apps.find((a) => a.id === id));
+      messages.push(...out.messages);
+    });
+  }
+  await store.del("people", user.id);
+  await store.withLock("subs:" + user.id, () => store.setSubs(user.id, []));
+  await store.withLock("notes:" + user.id, () => store.setNotes(user.id, []));
+  await notify(messages);
+  return { state: await store.load() };
 }

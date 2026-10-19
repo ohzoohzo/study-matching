@@ -479,7 +479,9 @@ function renderMe() {
   document.getElementById("meLabel").textContent = m ? m.name + " · " + R.ROLE_LABEL[m.role] : "로그인";
   mePanel.innerHTML = m
     ? '<div><h2 class="t-headline1">내 프로필</h2><p class="me-now t-body2"><b>' + esc(m.name) + '</b><span class="tag">' + R.ROLE_LABEL[m.role] + "</span>" + R.tagsOf(m).map((t) => '<span class="tag tag-brand">' + hashText(t) + "</span>").join("") + "</p></div>" +
-      profileForm("nav") + '<hr class="divider">' + pushBox() + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">로그아웃</button>'
+      profileForm("nav") + '<hr class="divider">' + pushBox() + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">로그아웃</button>' +
+      '<div class="danger-zone"><hr class="divider"><div><b class="t-label1">회원 탈퇴</b><p class="note t-caption1">이름·직군·알림을 지우고, 내가 연 스터디는 모집 취소, 내 신청은 취소돼요. 되돌릴 수 없어요.</p></div>' +
+      '<button type="button" class="btn btn-danger btn-sm" data-act="delete-account">' + ICON.block + "회원 탈퇴</button></div>"
     : account()
       ? '<div><h2 class="t-headline1">이름과 직군 정하기</h2><p class="note t-caption1">저장하면 스터디를 열거나 신청할 수 있어요.</p></div>' + profileForm("nav") + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">다른 계정으로 로그인</button>'
       : '<div><h2 class="t-headline1">구글로 로그인</h2><p class="note t-caption1">로그인하면 스터디를 열거나 신청할 수 있어요.</p></div>' + googleBox();
@@ -578,7 +580,7 @@ function studyCard(s) {
     '<p class="goal t-body2">' + esc(s.goal) + "</p>" +
     '<div class="meta t-caption1">' + metaLine(s) + "</div>" +
     (dateLine(s) ? '<div class="meta t-caption1">' + dateLine(s) + "</div>" : "") +
-    '<div class="leader t-caption1">모집자 ' + (leader ? "<b>" + esc(leader.name) + "</b> · " + R.ROLE_LABEL[leader.role] : "알 수 없음") + "</div>" +
+    '<div class="leader t-caption1">모집자 ' + (leader ? "<b>" + esc(leader.name) + "</b> · " + R.ROLE_LABEL[leader.role] : "탈퇴한 사람") + "</div>" +
     seatsBar(s) + mixRow(s) + "</article></li>";
 }
 
@@ -809,7 +811,7 @@ function viewDetail(id) {
     '<div class="actions" style="margin-top:var(--spacing-12)">' + statusTag(s) + dueTag(s) + "</div>" +
     '<h1 class="t-title1" style="margin-top:var(--spacing-8)">' + esc(s.title) + "</h1>" +
     (R.tagsOf(s).length ? '<div class="study-tags detail-tags" role="group" aria-label="해시태그">' + R.tagsOf(s).map((t) => '<button type="button" class="tag tag-btn" data-tagjump="' + esc(t) + '" aria-label="' + hashText(t) + ' 태그로 목록에서 찾기">' + hashText(t) + "</button>").join("") + "</div>" : "") +
-    "<p>" + metaLine(s) + (dateLine(s) ? " · " + dateLine(s) : "") + " · 모집자 " + (leader ? esc(leader.name) + "(" + R.ROLE_LABEL[leader.role] + ")" : "알 수 없음") + "</p>" +
+    "<p>" + metaLine(s) + (dateLine(s) ? " · " + dateLine(s) : "") + " · 모집자 " + (leader ? esc(leader.name) + "(" + R.ROLE_LABEL[leader.role] + ")" : "탈퇴한 사람") + "</p>" +
     '<div class="goal-box t-body2"><b>목표</b> ' + esc(s.goal) + "</div>" + canceledNote + "</header>" +
     '<div class="two">' + membersBox + '<div class="stack">' + side + "</div></div>";
 }
@@ -1093,6 +1095,32 @@ document.addEventListener("click", (e) => {
         await api("POST", "push", { subscription: sub.toJSON() });
         await checkPush();
         toast("이 기기에서 알림을 받아요.");
+      });
+      return;
+    }
+    if (b.dataset.act === "delete-account") {
+      const m = me();
+      if (!m) return;
+      const n = R.accountImpact(S, m.id);
+      confirmBox({
+        title: "정말 탈퇴할까요?",
+        body: (n.studies ? "내가 연 스터디 " + n.studies + "개는 모집 취소되고, 함께하던 사람에게 알림이 가요. " : "") +
+          (n.apps ? "내 신청 " + n.apps + "개는 신청 취소(수락된 스터디는 나감)로 바뀌어요. " : "") +
+          "이름·직군·알림은 바로 지워지고 되돌릴 수 없어요. 같은 구글 계정으로 다시 가입하면 처음부터 시작해요.",
+        ok: "탈퇴하기", danger: true,
+      }).then((yes) => {
+        if (!yes) return;
+        run(b, "탈퇴하는 중…", async () => {
+          await api("DELETE", "me"); // 서버가 프로필·구독·알림함을 지우고 바뀐 목록(state)을 돌려줘요
+          const sub = canPush() ? await pushSub().catch(() => null) : null;
+          if (sub) await sub.unsubscribe().catch(() => {}); // 이 기기 알림도 끊어요
+          saveAuth(null); expired = false; pdraft = emptyP(); perrors = {}; pushState = ""; pushTest = null; notes = null;
+          try { window.google.accounts.id.disableAutoSelect(); } catch (err) { /* 구글 스크립트가 없어도 탈퇴는 끝났어요 */ }
+          closeNotes(false); closePanel(false);
+          renderMe(); // 오른쪽 위 버튼을 "로그인"으로 바꿔요 (주소를 옮겨도 프로필 버튼은 다시 그리지 않아서요)
+          if (location.hash && location.hash !== "#/") location.hash = "#/"; else refresh();
+          toast("탈퇴했어요. 그동안 함께해 줘서 고마워요.");
+        });
       });
       return;
     }

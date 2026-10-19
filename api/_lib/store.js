@@ -53,6 +53,9 @@ export function redisStore({ env = process.env, prefix } = {}) {
     async put(kind, obj) {
       await redis.hset(base + kind, { [obj.id]: JSON.stringify(obj) });
     },
+    async del(kind, id) {
+      await redis.hdel(base + kind, id);
+    },
     async nextId(p) {
       return p + "-" + (await redis.incr(base + "seq"));
     },
@@ -69,7 +72,8 @@ export function redisStore({ env = process.env, prefix } = {}) {
       return v ? JSON.parse(v) : [];
     },
     async setNotes(personId, list) {
-      await redis.hset(base + "notes", { [personId]: JSON.stringify(list) });
+      if (list.length) await redis.hset(base + "notes", { [personId]: JSON.stringify(list) });
+      else await redis.hdel(base + "notes", personId);
     },
     async withLock(name, fn) {
       const key = base + "lock:" + name, mine = randomUUID();
@@ -104,11 +108,12 @@ export function memoryStore() {
     },
     async get(kind, id) { await tick(); const v = data[kind].get(id); return v ? structuredClone(v) : null; },
     async put(kind, obj) { await tick(); data[kind].set(obj.id, structuredClone(obj)); },
+    async del(kind, id) { await tick(); data[kind].delete(id); },
     async nextId(p) { await tick(); seq += 1; return p + "-" + seq; },
     async getSubs(id) { await tick(); return structuredClone(subs.get(id) || []); },
     async setSubs(id, list) { await tick(); if (list.length) subs.set(id, structuredClone(list)); else subs.delete(id); },
     async getNotes(id) { await tick(); return structuredClone(notes.get(id) || []); },
-    async setNotes(id, list) { await tick(); notes.set(id, structuredClone(list)); },
+    async setNotes(id, list) { await tick(); if (list.length) notes.set(id, structuredClone(list)); else notes.delete(id); },
     withLock(name, fn) {
       const run = chain.then(() => fn());
       chain = run.then(() => {}, () => {});

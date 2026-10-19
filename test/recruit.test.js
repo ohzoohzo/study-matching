@@ -551,3 +551,56 @@ test("많이 쓰는 태그: 사람과 취소되지 않은 스터디에서 세고
   assert.deepEqual(R.tagSuggestions(people, studies, { exclude: ["REACT"] }), ["7기", "주말"]);
   assert.deepEqual(R.tagSuggestions(people, studies, { limit: 1 }), ["7기"]);
 });
+
+// ---------- 회원 탈퇴 ----------
+const AT = "2026-10-19T21:00";
+const byId = (list, id) => list.find((x) => x.id === id);
+
+test("탈퇴: 내가 연 스터디는 모집 취소하고, 함께하던·대기 중이던 사람에게 알려요", () => {
+  const out = R.deleteAccount(seed, "p2", "gone-1", AT); // 디자인A: s2 모집자, s1에 대기 신청(x2)
+  const s2 = byId(out.studies, "s2");
+  assert.equal(s2.canceled, true);
+  assert.equal(s2.canceledAt, AT);
+  assert.equal(s2.leaderId, "gone-1");
+  const canceled = out.messages.filter((m) => m.kind === "canceled");
+  assert.deepEqual(canceled.map((m) => m.personId).sort(), ["p3", "p4"]);
+  assert.match(canceled[0].body, /Figma 오토레이아웃/);
+});
+
+test("탈퇴: 내 대기 신청은 신청 취소, 수락된 신청은 나감으로 바꾸고 모집자에게 알려요", () => {
+  let out = R.deleteAccount(seed, "p2", "gone-1", AT);
+  assert.deepEqual([byId(out.apps, "x2").status, byId(out.apps, "x2").personId], ["withdrawn", "gone-1"]);
+  const w = out.messages.find((m) => m.kind === "withdrawn");
+  assert.equal(w.personId, "p5");
+  assert.match(w.body, /디자인A님/); // 알림은 지우기 전 이름으로 보내요
+  out = R.deleteAccount(seed, "p7", "gone-2", AT); // PO-B: s1에 수락(x1)
+  assert.deepEqual([byId(out.apps, "x1").status, byId(out.apps, "x1").personId], ["left", "gone-2"]);
+  assert.deepEqual(out.messages.map((m) => [m.kind, m.personId]), [["left", "p5"]]);
+});
+
+test("탈퇴: 프로필을 빼고 기록 속 내 id를 모두 바꾸고, 다른 기록은 그대로 둬요", () => {
+  const out = R.deleteAccount(seed, "p2", "gone-1", AT);
+  assert.ok(!out.people.some((p) => p.id === "p2"));
+  assert.equal(out.people.length, seed.people.length - 1);
+  assert.ok(!JSON.stringify({ s: out.studies, a: out.apps }).includes('"p2"'));
+  for (const s of seed.studies.filter((x) => x.id !== "s2")) assert.deepEqual(byId(out.studies, s.id), s);
+  for (const a of seed.apps.filter((x) => x.id !== "x2")) assert.deepEqual(byId(out.apps, a.id), a);
+  assert.deepEqual(out.changed, { studies: ["s2"], apps: ["x2"] });
+});
+
+test("탈퇴: 이미 취소된 스터디나 끝난 신청은 상태를 바꾸지 않고 알림도 보내지 않아요 (id만 바꿔요)", () => {
+  const studies = seed.studies.map((s) => (s.id === "s2" ? { ...s, canceled: true, canceledAt: "2026-10-18T10:00" } : s));
+  const apps = seed.apps.concat({ id: "x9", studyId: "s3", personId: "p2", status: "rejected" });
+  const out = R.deleteAccount({ studies, apps, people: seed.people }, "p2", "gone-1", AT);
+  assert.equal(byId(out.studies, "s2").canceledAt, "2026-10-18T10:00");
+  assert.deepEqual([byId(out.apps, "x9").status, byId(out.apps, "x9").personId], ["rejected", "gone-1"]);
+  assert.deepEqual(out.messages.map((m) => m.kind), ["withdrawn"]); // s1 대기 신청 취소만
+});
+
+test("탈퇴 확인 창 숫자: 모집 취소될 내 스터디 수와 정리될 내 신청 수", () => {
+  assert.deepEqual(R.accountImpact(seed, "p2"), { studies: 1, apps: 1 }); // s2 취소, s1 대기 신청
+  assert.deepEqual(R.accountImpact(seed, "p7"), { studies: 0, apps: 1 }); // s1 수락
+  const studies = seed.studies.map((s) => (s.id === "s2" ? { ...s, canceled: true } : s));
+  assert.deepEqual(R.accountImpact({ studies, apps: seed.apps, people: seed.people }, "p2"), { studies: 0, apps: 1 });
+  assert.deepEqual(R.accountImpact(seed, "nobody"), { studies: 0, apps: 0 });
+});

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { redisStore } from "../api/_lib/store.js";
-import { createStudy, saveMe, applyStudy, decideApp, withdrawApp, updateStudy, getState } from "../api/_lib/recruit.js";
+import { createStudy, saveMe, applyStudy, decideApp, withdrawApp, updateStudy, getState, deleteMe } from "../api/_lib/recruit.js";
 
 const on = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 
@@ -71,6 +71,29 @@ test("Redis에 사이트 알림함을 저장하고, 공개 목록(load)에는 �
     await store.setNotes("me-g1", [note]);
     assert.deepEqual(await store.getNotes("me-g1"), [note]);
     assert.ok(!JSON.stringify(await store.load()).includes("redis-note-test"));
+  } finally {
+    await store.dropAll();
+  }
+});
+
+test("Redis에서 탈퇴하면 프로필·구독·알림함 키가 지워지고 기록 속 id가 바뀌어요", { skip: !on && "Redis 환경변수가 없어서 건너뛰어요" }, async () => {
+  const store = redisStore({ prefix: "recruit:test:" + randomUUID() + ":" });
+  try {
+    const A = { id: "me-g1", sub: "1" }, B = { id: "me-g2", sub: "2" };
+    await saveMe(store, A, { name: "모집자A", role: "dev" });
+    await saveMe(store, B, { name: "신청자B", role: "design" });
+    const { study } = await createStudy(store, A, { title: "Redis 탈퇴 확인", days: ["화"], mode: "오프라인", capacity: 3, goal: "탈퇴하고 다시 읽기" });
+    await applyStudy(store, B, { studyId: study.id });
+    await store.setSubs("me-g1", [{ endpoint: "https://fcm.googleapis.com/send/x", keys: { p256dh: "p", auth: "a" } }]);
+    await store.setNotes("me-g1", [{ id: "n-1", kind: "applied", studyId: study.id, title: "t", body: "b", url: "/", at: "2026-10-19T21:00", read: false }]);
+    await deleteMe(store, A);
+    const st = await getState(store);
+    assert.deepEqual(st.people.map((p) => p.id), ["me-g2"]);
+    assert.equal(st.studies[0].canceled, true);
+    assert.match(st.studies[0].leaderId, /^gone-/);
+    assert.ok(!JSON.stringify(st).includes("me-g1"));
+    assert.deepEqual(await store.getSubs("me-g1"), []);
+    assert.deepEqual(await store.getNotes("me-g1"), []);
   } finally {
     await store.dropAll();
   }

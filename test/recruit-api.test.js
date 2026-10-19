@@ -706,3 +706,60 @@ test("스터디 해시태그: 열 때 다듬어 저장하고, 안 보내면 빈 
   assert.equal(r.status, 400);
   assert.ok(r.body.fields.tags);
 });
+
+// ---------- 회원 탈퇴 ----------
+test("탈퇴: 로그인하지 않으면 401이에요", async () => {
+  const call = setup();
+  assert.equal((await call(meApi, "DELETE")).status, 401);
+  assert.equal((await call(meApi, "DELETE", { token: "forged" })).status, 401);
+});
+
+test("탈퇴: 내 스터디는 모집 취소, 내 신청은 신청 취소로 바뀌고, 관련된 사람에게 알림이 가요", async () => {
+  const call = setup();
+  const { s, b, c } = await studyWithApps(call); // A 모집자, B 수락, C 대기
+  const t = (await call(studiesApi, "POST", { token: "tokB", body: { ...study, title: "B가 연 스터디" } })).body.study;
+  const mine = (await call(appsApi, "POST", { token: "tokA", body: { studyId: t.id } })).body.app; // A가 B 스터디에 대기
+  await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(1) } });
+  for (const tok of ["tokB", "tokC"]) await call(notesApi, "PATCH", { token: tok, body: { all: true } });
+  call.sent.length = 0;
+  const r = await call(meApi, "DELETE", { token: "tokA" });
+  assert.equal(r.status, 200);
+  const st = r.body.state;
+  const s2 = st.studies.find((x) => x.id === s.id);
+  assert.equal(s2.canceled, true);
+  assert.match(s2.leaderId, /^gone-/);
+  const a2 = st.apps.find((x) => x.id === mine.id);
+  assert.equal(a2.status, "withdrawn");
+  assert.equal(a2.personId, s2.leaderId); // 같은 임시 번호
+  assert.deepEqual(st.apps.filter((x) => [b.id, c.id].includes(x.id)).map((x) => x.status), ["accepted", "pending"]); // 남의 신청은 그대로
+  assert.ok(!JSON.stringify(st).includes("me-g111"));
+  assert.ok(!JSON.stringify((await call(stateApi, "GET")).body).includes("me-g111"));
+  const bNotes = (await call(notesApi, "GET", { token: "tokB" })).body.notes.filter((n) => !n.read).map((n) => n.kind).sort();
+  assert.deepEqual(bNotes, ["canceled", "withdrawn"]); // B: 함께하던 스터디 취소 + 내 스터디 신청 취소
+  const cNotes = (await call(notesApi, "GET", { token: "tokC" })).body.notes.filter((n) => !n.read).map((n) => n.kind);
+  assert.deepEqual(cNotes, ["canceled"]);
+  assert.deepEqual(call.sent, []); // 탈퇴한 A의 기기로는 보내지 않아요
+});
+
+test("탈퇴: 프로필·푸시 구독·알림함을 지우고, 같은 구글 계정으로 처음부터 다시 가입할 수 있어요", async () => {
+  const call = setup();
+  const { s } = await studyWithApps(call); // A에게 알림 2개가 쌓여 있어요
+  await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(1) } });
+  assert.equal((await call(notesApi, "GET", { token: "tokA" })).body.notes.length, 2);
+  await call(meApi, "DELETE", { token: "tokA" });
+  assert.equal((await call(meApi, "GET", { token: "tokA" })).body.person, null);
+  assert.deepEqual(await call.store.getSubs("me-g111"), []);
+  assert.deepEqual((await call(notesApi, "GET", { token: "tokA" })).body, { notes: [], unread: 0 });
+  await call(meApi, "PUT", { token: "tokA", body: { name: "다시온A", role: "po" } });
+  const t = (await call(studiesApi, "POST", { token: "tokB", body: study })).body.study;
+  assert.equal((await call(appsApi, "POST", { token: "tokA", body: { studyId: t.id } })).status, 201);
+  assert.ok(s);
+});
+
+test("탈퇴: 프로필을 저장하기 전이어도 탈퇴할 수 있어요 (지울 구독·알림만 지워요)", async () => {
+  const call = setup();
+  await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(1) } });
+  const r = await call(meApi, "DELETE", { token: "tokA" });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await call.store.getSubs("me-g111"), []);
+});

@@ -361,3 +361,36 @@ export function activityStats(studies, apps, people, today = kstToday()) {
     newThisWeek: live.filter((s) => { const d = String(s.createdAt || "").slice(0, 10); return d >= from && d <= today; }).length,
   };
 }
+
+// 회원 탈퇴: 내가 연 스터디는 모집 취소, 내 신청은 대기면 신청 취소·수락이면 나감으로 바꾸고,
+// 기록 속 내 id는 임시 번호(gone)로 바꾸고 프로필을 빼요. 알림은 지우기 전 이름으로 만들어요.
+// 돌려주는 것: { studies, apps, people, messages(보낼 알림), changed: { studies: [id], apps: [id] }(바뀐 기록) }
+export function deleteAccount({ studies, apps, people }, personId, gone, at) {
+  const messages = [];
+  const changed = { studies: [], apps: [] };
+  const nextStudies = studies.map((s) => {
+    if (s.leaderId !== personId) return s;
+    changed.studies.push(s.id);
+    if (s.canceled) return { ...s, leaderId: gone };
+    const c = { ...s, canceled: true, canceledAt: at };
+    messages.push(...pushMessages("canceled", { study: c, apps, people }));
+    return { ...c, leaderId: gone };
+  });
+  const nextApps = apps.map((a) => {
+    if (a.personId !== personId) return a;
+    changed.apps.push(a.id);
+    const s = studies.find((x) => x.id === a.studyId);
+    const kind = s && !s.canceled ? (a.status === "pending" ? "withdrawn" : a.status === "accepted" ? "left" : "") : "";
+    if (kind) messages.push(...pushMessages(kind, { study: s, app: a, people }));
+    return { ...a, status: kind || a.status, personId: gone };
+  });
+  return { studies: nextStudies, apps: nextApps, people: people.filter((p) => p.id !== personId), messages, changed };
+}
+// 탈퇴 확인 창에 보여 줄 숫자: 모집 취소될 내 스터디 수, 신청 취소·나감으로 바뀔 내 신청 수
+export function accountImpact(state, personId) {
+  const out = deleteAccount(state, personId, "-", "");
+  return {
+    studies: state.studies.filter((s) => s.leaderId === personId && !s.canceled).length,
+    apps: out.messages.filter((m) => m.kind === "withdrawn" || m.kind === "left").length,
+  };
+}

@@ -18,7 +18,7 @@
   .note-btn[hidden] { display: none; }
   .note-badge { position: absolute; top: calc(-1 * var(--spacing-6)); right: calc(-1 * var(--spacing-6)); min-width: 18px; height: 18px; padding: 0 var(--spacing-4); border-radius: var(--radius-full); background: var(--brand); color: var(--semantic-static-white); font-size: var(--typography-caption2-fontSize); line-height: 18px; font-weight: 700; text-align: center; }
   .note-badge[hidden] { display: none; }
-  .note-panel { max-height: min(70vh, 560px); overflow: auto; gap: var(--spacing-12); } /* 폭과 위치는 .me-panel과 같아요 */
+  .me-panel.note-panel { max-height: min(70vh, 560px); overflow: auto; gap: var(--spacing-12); } /* 폭과 위치는 .me-panel과 같아요 */
   .note-head { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-8); }
   .note-head h2 { margin: 0; }
   .nav .note-panel .note-list { display: grid; gap: var(--spacing-4); width: 100%; margin: 0; padding: 0; list-style: none; overflow: visible; order: 0; }
@@ -34,6 +34,8 @@
   .me-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .me-panel { position: absolute; right: var(--gutter); top: calc(100% + var(--spacing-8)); z-index: 15; width: min(380px, calc(100vw - 2 * var(--gutter))); max-height: calc(100dvh - 88px); overflow-y: auto; overscroll-behavior: contain; display: grid; gap: var(--spacing-16); box-shadow: var(--semantic-elevation-shadow-normal-large); }
   .me-panel[hidden] { display: none; }
+  /* 메뉴(sticky)에 붙은 창이라 화면보다 길면 아래가 닿지 않아요: 화면 높이에 맞추고 창 안에서 스크롤해요 */
+  .me-panel { max-height: calc(100vh - 128px); max-height: calc(100dvh - 128px); overflow-y: auto; overscroll-behavior: contain; }
   .me-panel h2 { margin: 0; }
   .me-panel select, .select { width: 100%; height: 48px; padding: 0 var(--spacing-12); border: 1px solid var(--line); border-radius: var(--radius-12); background: var(--bg); }
   .me-now { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-6); color: var(--fg-2); }
