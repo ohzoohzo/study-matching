@@ -1,6 +1,6 @@
 // 스터디 매칭보드 화면. 규칙 계산은 logic.js가 하고, 여기서는 그리기와 저장만 해요.
 // 데이터는 이 브라우저(localStorage)에만 저장돼요. 처음에는 테스트 데이터 40명과 6팀으로 시작해요.
-import * as L from "/logic.js";
+import * as L from "/v1/logic.js";
 
 const KEY = "study-matching-board:v1";
 const ADMIN = "admin";
@@ -13,8 +13,8 @@ function nextId() { S.seq += 1; return "a" + S.seq; }
 
 async function freshState() {
   const [csv, teamsJson] = await Promise.all([
-    fetch("/data/matching_test_members.csv").then((r) => { if (!r.ok) throw new Error("테스트 데이터를 불러오지 못했어요."); return r.text(); }),
-    fetch("/data/teams.json").then((r) => { if (!r.ok) throw new Error("팀 데이터를 불러오지 못했어요."); return r.json(); }),
+    fetch("/v1/data/matching_test_members.csv").then((r) => { if (!r.ok) throw new Error("테스트 데이터를 불러오지 못했어요."); return r.text(); }),
+    fetch("/v1/data/teams.json").then((r) => { if (!r.ok) throw new Error("팀 데이터를 불러오지 못했어요."); return r.json(); }),
   ]);
   const members = L.parseMembersCsv(csv);
   const base = teamsJson.teams;

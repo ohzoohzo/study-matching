@@ -11,23 +11,28 @@
 
 ```
 study-matching/
-├── index.html       화면 4개 (매칭보드 #/ · 프로필 등록 #/profile · 팀 상세 #/team/t1 · 운영진 관리 #/admin)
-├── app.js           화면 그리기와 저장 (localStorage)
-├── logic.js         기획안 7장 규칙: 정원 계산·추천 점수·지원/수락·자동 배치 (화면과 테스트가 같이 써요)
+├── index.html       메인(/): 스터디 모집 화면. 코드는 recruit/에 있어요
+├── recruit/         recruit.js(화면·서버 부르기), recruit-logic.js(모집 규칙, 서버도 같이 써요)
+├── api/             Vercel 서버 함수 /api/recruit/* (구글 토큰 검증, Upstash Redis 저장), 공통 코드는 api/_lib/
+├── privacy.html     개인정보처리방침
 ├── style.css        공통 스타일 (원티드 Montage 토큰 + Pretendard)
-├── data/
-│   ├── matching_test_members.csv   기획안 테스트 데이터 40명 (그대로)
-│   └── teams.json                  6팀 (기획안 JSON이 없어서 만든 가정 데이터, _note 참고)
-├── test/logic.test.js   npm test: R1~R8과 평가 체크리스트를 숫자로 확인
+├── v1/              기획안 버전 백업 (/v1/)
+│   ├── index.html   화면 4개 (매칭보드 #/ · 프로필 등록 #/profile · 팀 상세 #/team/t1 · 운영진 관리 #/admin)
+│   ├── app.js       화면 그리기와 저장 (localStorage)
+│   ├── logic.js     기획안 7장 규칙: 정원 계산·추천 점수·지원/수락·자동 배치 (화면과 테스트가 같이 써요)
+│   └── data/
+│       ├── matching_test_members.csv   기획안 테스트 데이터 40명 (그대로)
+│       └── teams.json                  6팀 (기획안 JSON이 없어서 만든 가정 데이터, _note 참고)
+├── test/            npm test: logic.test.js(기획안 R1~R8), recruit*.test.js(모집 규칙·서버 함수)
 └── .claude/skills/ui-ux-pro-max/   UI/UX 점검 스킬
 ```
 
 ## 규칙 (고칠 때 꼭 지켜요)
 
-- **규칙 계산은 `logic.js`에만** 있어요. 화면(`app.js`)에서 점수나 정원을 따로 계산하지 않아요.
+- **규칙 계산은 `v1/logic.js`(기획안)·`recruit/recruit-logic.js`(모집)에만** 있어요. 화면(`v1/app.js`, `recruit/recruit.js`)에서 점수나 정원을 따로 계산하지 않아요.
 - 추천에 **AI 호출을 쓰지 않아요.** 숫자 계산만으로 같은 입력에 같은 결과가 나와야 해요.
 - 데이터 필드 이름은 기획안과 같아요: member(id, name, role, domains, times, intro), team(id, number, domain, mainTimes, slots, leaderId), application(id, memberId, teamId, role, status).
-- role은 `dev/design/po/marketing`, status는 `pending/accepted/rejected`, 도메인 5개와 시간대 6개는 `logic.js`의 목록에서만 골라요(자유 입력 없음).
+- role은 `dev/design/po/marketing`, status는 `pending/accepted/rejected`, 도메인 5개와 시간대 6개는 `v1/logic.js`의 목록에서만 골라요(자유 입력 없음).
 - 규칙을 바꾸면 `test/logic.test.js`에 테스트를 더하고 `npm test`가 통과해야 PR을 올려요. 특히 아래는 늘 통과해야 해요.
   - 팀 수 6이면 정원표가 기획안 7장 예시와 같다
   - 같은 사람의 추천 상위 3개가 7장 점수대로 나온다

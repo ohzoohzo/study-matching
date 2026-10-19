@@ -3,10 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vercel dev",
+    "local": "vercel dev",
     "test": "node --test test/"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.39.0",
+    "google-auth-library": "^10.9.1"
   }
 }

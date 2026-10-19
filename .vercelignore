@@ -2,3 +2,4 @@
 test
 CLAUDE.md
 node_modules
+.env*

@@ -15,10 +15,10 @@ const seed = {
     { id: "p7", name: "PO-B", role: "po" },
   ],
   studies: [
-    { id: "s1", topic: "t4", title: "pandas로 CSV 분석해 보기", days: ["화", "목"], mode: "ZEP 온라인", capacity: 5, goal: "CSV를 읽어 필터·정렬·집계까지 해 보기", leaderId: "p5", closed: false, createdAt: "2026-10-16T09:00" },
-    { id: "s2", topic: "", title: "Figma 오토레이아웃 같이 익히기", days: ["수"], mode: "오프라인", capacity: 6, goal: "카드 컴포넌트 하나를 오토레이아웃으로 완성", leaderId: "p2", closed: false, createdAt: "2026-10-16T10:30" },
-    { id: "s3", topic: "t7", title: "Flask로 /api/summary 만들기", days: ["월", "금"], mode: "ZEP 온라인", capacity: 4, goal: "분석 결과를 JSON으로 응답하기", leaderId: "p1", closed: false, createdAt: "2026-10-15T20:00" },
-    { id: "s4", topic: "t1", title: "파이썬 기초 문법 완주반", days: ["월", "수", "금"], mode: "오프라인", capacity: 3, goal: "매일 작은 문제 하나씩 풀기", leaderId: "p3", closed: true, createdAt: "2026-10-15T18:00" },
+    { id: "s1", title: "pandas로 CSV 분석해 보기", days: ["화", "목"], mode: "ZEP 온라인", capacity: 5, goal: "CSV를 읽어 필터·정렬·집계까지 해 보기", leaderId: "p5", closed: false, createdAt: "2026-10-16T09:00" },
+    { id: "s2", title: "Figma 오토레이아웃 같이 익히기", days: ["수"], mode: "오프라인", capacity: 6, goal: "카드 컴포넌트 하나를 오토레이아웃으로 완성", leaderId: "p2", closed: false, createdAt: "2026-10-16T10:30" },
+    { id: "s3", title: "Flask로 /api/summary 만들기", days: ["월", "금"], mode: "ZEP 온라인", capacity: 4, goal: "분석 결과를 JSON으로 응답하기", leaderId: "p1", closed: false, createdAt: "2026-10-15T20:00" },
+    { id: "s4", title: "파이썬 기초 문법 완주반", days: ["월", "수", "금"], mode: "오프라인", capacity: 3, goal: "매일 작은 문제 하나씩 풀기", leaderId: "p3", closed: true, createdAt: "2026-10-15T18:00" },
   ],
   apps: [
     { id: "x1", studyId: "s1", personId: "p7", status: "accepted", message: "" },
@@ -32,18 +32,18 @@ const seed = {
 };
 const S = (id) => seed.studies.find((s) => s.id === id);
 
-test("테스트 스터디는 모두 등록 규칙을 통과해요 (주제 없이 연 스터디 포함)", () => {
+test("테스트 스터디는 모두 등록 규칙을 통과해요", () => {
   seed.studies.forEach((s) => assert.deepEqual(R.validateStudy(s), {}, s.id));
 });
 
-test("등록 규칙: 요일은 하나 이상, 권장 주제는 고르지 않아도 되고, 정원은 6명 이내예요", () => {
-  const ok = { topic: "t3", title: "NumPy 벡터 연산", days: ["화", "목"], mode: "ZEP 온라인", capacity: 6, goal: "반복문을 벡터 연산으로 바꿔 속도 비교" };
+test("등록 규칙: 요일은 하나 이상, 정원은 6명 이내예요 (권장 주제는 없어요)", () => {
+  const ok = { title: "NumPy 벡터 연산", days: ["화", "목"], mode: "ZEP 온라인", capacity: 6, goal: "반복문을 벡터 연산으로 바꿔 속도 비교" };
   assert.deepEqual(R.validateStudy(ok), {});
-  assert.deepEqual(R.validateStudy({ ...ok, topic: "" }), {});
-  assert.ok(R.validateStudy({ ...ok, topic: "free" }).topic);
+  assert.deepEqual(R.validateStudy({ ...ok, topic: "free" }), {}); // 주제 칸은 보지 않아요
   assert.ok(R.validateStudy({ ...ok, days: [] }).days);
   assert.ok(R.validateStudy({ ...ok, capacity: 7 }).capacity);
-  assert.ok(!R.TOPICS.some((t) => t.key === "free"));
+  assert.equal(R.TOPICS, undefined);
+  assert.equal(R.TOPIC_LABEL, undefined);
 });
 
 test("직군 구성: 모집자와 수락된 사람으로 세고, 없는 직군을 알려 줘요", () => {
@@ -69,6 +69,23 @@ test("정원이 차거나 마감하면 신청이 막혀요", () => {
   assert.throws(() => R.apply(S("s3"), apps, seed.people, "p6", "c"), /정원/);
   assert.throws(() => R.apply(S("s4"), seed.apps, seed.people, "p2", "d"), /마감/);
   assert.throws(() => R.apply(S("s1"), seed.apps, seed.people, "p5", "e"), /내가 연/);
+});
+
+test("수락·거절·마감은 모집자만 할 수 있어요", () => {
+  assert.deepEqual(R.canManage(S("s1"), "p5"), { ok: true });
+  assert.match(R.canManage(S("s1"), "p2").reason, /모집자만/);
+  assert.match(R.canManage(S("s1"), null).reason, /로그인/);
+  assert.throws(() => R.closeStudy(S("s1"), "p2"), /모집자만/);
+  const closed = R.closeStudy(S("s1"), "p5");
+  assert.equal(closed.closed, true);
+  assert.equal(S("s1").closed, false); // 원래 스터디는 그대로예요
+});
+
+test("다시 신청하면 마지막 신청이 내 신청이에요", () => {
+  let apps = R.apply(S("s3"), seed.apps, seed.people, "p2", "r1");
+  apps = R.decide(S("s3"), apps, seed.people, "r1", "rejected");
+  apps = R.apply(S("s3"), apps, seed.people, "p2", "r2", "한 번 더요");
+  assert.equal(R.myApplication(S("s3"), apps, "p2").id, "r2");
 });
 
 test("목록은 모집 중인 스터디가 먼저예요", () => {

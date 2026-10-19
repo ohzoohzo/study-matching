@@ -1,43 +1,103 @@
-// 공지용 스터디 모집 화면. 규칙 계산은 recruit-logic.js가 하고, 여기서는 그리기와 저장만 해요.
-// 데이터는 이 브라우저(localStorage)에만 저장돼요. 처음에는 빈 목록으로 시작하고, 스터디를 열거나 신청하려면 구글 로그인이 필요해요.
+// 공지용 스터디 모집 화면. 규칙 계산은 recruit-logic.js가 하고, 여기서는 그리기와 서버 부르기만 해요.
+// 스터디·신청·프로필은 서버(/api/recruit → Vercel Storage의 Redis)에 있어서 여러 사람이 같은 목록을 봐요.
+// 이 브라우저에는 로그인 확인용 구글 토큰만 만료(1시간)까지 둬요. 서버가 쓰기 요청마다 이 토큰을 검증해요.
 import * as R from "/recruit/recruit-logic.js";
 
-const KEY = "study-recruit:v2"; // v1은 예시 데이터가 들어 있던 저장분이라 쓰지 않아요
-let S = null; // { people, studies, apps, meId, seq }
+const AUTH_KEY = "study-recruit:auth";
+let S = null; // { people, studies, apps } 서버가 준 상태
+let auth = null; // { token, sub, exp } 구글 ID 토큰과 계정 번호
+let expired = false; // 로그인 시간이 지나서 풀렸는지
+let loadedAt = 0;
 const app = document.getElementById("app");
 const meBtn = document.getElementById("meBtn");
 const mePanel = document.getElementById("mePanel");
 
-// ---------- 저장 ----------
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* 저장을 막아도 화면은 그대로 동작해요 */ } }
-function nextId(prefix) { S.seq += 1; return prefix + "-" + S.seq; }
-function nowMinute() { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+// ---------- 로그인 토큰 (이 브라우저) ----------
+function loadAuth() {
+  try {
+    const a = JSON.parse(localStorage.getItem(AUTH_KEY) || "null");
+    return a && typeof a.token === "string" && typeof a.sub === "string" && Number.isFinite(a.exp) ? a : null;
+  } catch (e) { return null; }
+}
+function saveAuth(a) {
+  auth = a;
+  try { if (a) localStorage.setItem(AUTH_KEY, JSON.stringify(a)); else localStorage.removeItem(AUTH_KEY); } catch (e) { /* 저장을 막아도 이 화면에서는 로그인돼요 */ }
+}
+// 만료 1분 전부터는 로그인이 풀린 것으로 봐요
+const account = () => (auth && auth.exp * 1000 > Date.now() + 60000 ? auth : null);
 
-function freshState() {
-  return { people: [], studies: [], apps: [], meId: null, seq: 0 };
+// ---------- 서버 ----------
+class ApiError extends Error {
+  constructor(status, message, fields) { super(message); this.status = status; this.fields = fields || null; }
+}
+// token을 주면 그 토큰으로(로그인 직후 확인), 아니면 저장된 토큰으로 불러요
+async function api(method, path, body, token) {
+  const headers = {};
+  const t = token || (account() && auth.token);
+  if (t) headers.Authorization = "Bearer " + t;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  let res, data = null;
+  try { res = await fetch("/api/recruit/" + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: "no-store" }); }
+  catch (e) { throw new ApiError(0, "서버에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요."); }
+  try { data = await res.json(); } catch (e) { data = null; }
+  if (!res.ok) {
+    if (res.status === 401 && !token) loginExpired();
+    throw new ApiError(res.status, (data && data.error) || "잠시 문제가 생겼어요. 조금 뒤에 다시 시도해 주세요.", data && data.fields);
+  }
+  if (data && data.state) { S = data.state; loadedAt = Date.now(); }
+  return data;
+}
+async function loadState() {
+  const d = await api("GET", "state");
+  if (!d || !Array.isArray(d.people) || !Array.isArray(d.studies) || !Array.isArray(d.apps)) throw new ApiError(500, "스터디 목록을 읽지 못했어요. 다시 불러와 주세요.");
+  S = d; loadedAt = Date.now();
+}
+function loginExpired() {
+  saveAuth(null); expired = true;
+  pdraft = { name: "", role: "" }; perrors = {};
 }
 
+// 다른 사람이 바꾼 내용을 다시 받아요 (화면을 옮길 때, 탭으로 돌아올 때, 새로 고침 버튼)
+let syncing = null;
+function syncState(force = false) {
+  if (!S || (!force && Date.now() - loadedAt < 5000)) return Promise.resolve(false);
+  if (syncing) return syncing;
+  const before = JSON.stringify(S);
+  syncing = loadState()
+    .then(() => { if (JSON.stringify(S) !== before) softRender(); return true; }, () => false)
+    .finally(() => { syncing = null; });
+  return syncing;
+}
+// 글을 쓰는 중이면 화면을 다시 그리지 않아요 (다음에 그릴 때 새 내용이 보여요)
+function softRender() {
+  const a = document.activeElement;
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+  if (mePanel.hidden) renderMe();
+  rerender();
+}
+
+const loadingView = () => '<div class="sec" role="status"><span class="sr">스터디 목록을 불러오고 있어요.</span>' +
+  '<div class="skeleton" style="height:72px;max-width:560px;margin-bottom:var(--spacing-24)" aria-hidden="true"></div>' +
+  '<ul class="studies" aria-hidden="true">' + '<li><div class="skeleton" style="height:240px"></div></li>'.repeat(3) + "</ul></div>";
+
 async function boot() {
-  app.innerHTML = '<div class="skeleton" style="height:240px;margin-top:var(--spacing-40)" aria-label="불러오는 중"></div>';
-  try {
-    let saved = null;
-    try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { saved = null; }
-    S = saved && Array.isArray(saved.people) && Array.isArray(saved.studies) && Array.isArray(saved.apps) ? saved : freshState();
-  } catch (err) { return showError(err.message); }
-  if (S.meId && !person(S.meId)) S.meId = null;
-  save();
+  app.setAttribute("aria-busy", "true");
+  app.innerHTML = loadingView();
+  auth = loadAuth();
+  if (auth && !account()) { saveAuth(null); expired = true; }
+  try { await loadState(); }
+  catch (err) { app.removeAttribute("aria-busy"); renderMe(); return showError(err.message); }
+  app.removeAttribute("aria-busy");
   renderMe();
   route();
 }
 
 // ---------- 도우미 ----------
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const person = (id) => S.people.find((p) => p.id === id);
+const person = (id) => (S ? S.people.find((p) => p.id === id) : undefined);
 const study = (id) => S.studies.find((s) => s.id === id);
-const me = () => (S.meId ? person(S.meId) || null : null);
+const me = () => { const a = account(); return a ? person("me-g" + a.sub) || null : null; };
 const STATUS = { pending: "대기", accepted: "수락", rejected: "거절" };
-const topicShort = (k) => (R.TOPIC_LABEL[k] || "").split(" · ")[0];
-const topicTag = (s) => (s.topic ? '<span class="tag tag-brand">' + esc(R.TOPIC_LABEL[s.topic]) + "</span>" : "");
 const ICON = {
   add: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>',
   back: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
@@ -45,6 +105,7 @@ const ICON = {
   check: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>',
   open: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>',
   flag: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>',
+  refresh: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
 };
 
 function toast(msg) {
@@ -53,36 +114,53 @@ function toast(msg) {
   clearTimeout(toast.t); toast.t = setTimeout(() => { el.hidden = true; }, 2800);
 }
 function showError(msg) {
-  app.innerHTML = '<div class="sec"><div class="alert" role="alert">' + ICON.warn + '<div><b></b><div><button class="btn btn-outline btn-sm" data-act="reload" style="margin-top:var(--spacing-8)">다시 불러오기</button></div></div></div></div>';
+  app.innerHTML = '<div class="sec"><div class="alert" role="alert">' + ICON.warn + '<div><b></b><p class="t-caption1" style="margin:var(--spacing-4) 0 0">잠시 뒤 다시 불러오면 대부분 해결돼요.</p><div><button class="btn btn-outline btn-sm" data-act="reload" style="margin-top:var(--spacing-8)">다시 불러오기</button></div></div></div></div>';
   app.querySelector("b").textContent = msg;
+}
+
+// 서버에 보내는 동안 버튼을 막고 "…하는 중"을 보여 줘요. 한 번에 하나만 보내요.
+let working = false;
+async function run(btn, label, fn) {
+  if (working) return;
+  working = true;
+  const old = btn ? btn.innerHTML : "";
+  if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); btn.textContent = label; }
+  try { await fn(); }
+  catch (err) { failed(err); }
+  finally {
+    working = false;
+    if (btn && btn.isConnected) { btn.disabled = false; btn.removeAttribute("aria-busy"); btn.innerHTML = old; }
+  }
+}
+function failed(err) {
+  toast(err.message || "잠시 문제가 생겼어요. 조금 뒤에 다시 시도해 주세요.");
+  if (err.status === 401) { refresh(); openPanel(false); return; }
+  // 다른 사람이 먼저 바꿨을 수 있어요 (정원 마감, 모집 마감 등). 최신 내용으로 다시 그려요.
+  if (err.status === 403 || err.status === 404 || err.status === 409) syncState(true);
 }
 
 // ---------- 구글 로그인 (Google Identity Services) ----------
 // 클라이언트 ID는 공개값이에요. 시크릿은 쓰지 않아요.
-// 지금은 데이터가 이 브라우저에만 있어서, 구글이 준 토큰은 이름·계정 구분에만 쓰고 서버 검증은 하지 않아요.
-// 저장소(Vercel Storage)를 붙이면 서버 함수에서 토큰을 검증해요.
+// 구글이 준 ID 토큰은 서버(/api/recruit/me)가 검증하고, 확인된 계정 번호(sub)로 "me-g"+sub를 내 id로 써요.
 const GOOGLE_CLIENT_ID = "27926126873-q4o4mr6s0bk5rcrcgqg43uclagsc1djo.apps.googleusercontent.com";
 
-function decodeJwt(token) {
-  const b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-  const bytes = Uint8Array.from(atob(b64 + "===".slice((b64.length + 3) % 4)), (c) => c.charCodeAt(0));
-  return JSON.parse(new TextDecoder().decode(bytes));
-}
-
-function onGoogle(resp) {
+async function onGoogle(resp) {
+  toast("구글 계정을 확인하고 있어요.");
   try {
-    const t = decodeJwt(resp.credential);
-    const id = "me-g" + t.sub;
-    const known = person(id);
-    if (known) {
-      S.meId = id; save(); pdraft = { name: "", role: "" }; perrors = {}; closePanel(false); refresh();
-      toast(known.name + "님, 다시 오셨네요.");
+    const d = await api("GET", "me", undefined, resp.credential);
+    saveAuth({ token: resp.credential, sub: d.account.sub, exp: d.account.exp });
+    expired = false; perrors = {};
+    if (!S) { boot(); return; } // 목록을 아직 못 불러왔으면 로그인한 채로 다시 불러와요
+    if (d.person) {
+      S.people = S.people.filter((p) => p.id !== d.person.id).concat(d.person);
+      pdraft = { name: "", role: "" }; closePanel(false); refresh();
+      toast(d.person.name + "님, 다시 오셨네요.");
       return;
     }
-    pdraft = { name: String(t.name || t.given_name || "").trim().slice(0, 12), role: pdraft.role, google: { sub: t.sub, email: t.email || "" } };
-    perrors = {}; refresh();
+    pdraft = { name: String(d.account.name || "").trim().slice(0, 12), role: pdraft.role, email: d.account.email || "" };
+    refresh();
     toast("구글 계정을 확인했어요. 직군을 고르고 저장해 주세요.");
-  } catch (e) { toast("구글 로그인 정보를 읽지 못했어요. 다시 시도해 주세요."); }
+  } catch (e) { toast(e.status === 401 ? "구글 로그인을 확인하지 못했어요. 다시 시도해 주세요." : e.message); }
 }
 
 function mountGoogle() {
@@ -103,15 +181,17 @@ let pdraft = { name: "", role: "" };
 let perrors = {};
 
 // 로그인 전에는 구글 버튼만 보여 줘요
-const googleBox = () => '<div class="field"><div data-gsi></div><p class="hint t-caption1">다음에 같은 계정으로 들어오면 내 프로필이 이어져요.</p></div>';
+const googleBox = () => '<div class="field">' + (expired ? '<p class="note t-caption1" style="margin-bottom:var(--spacing-8)">로그인 시간이 지났어요. 다시 로그인하면 이어서 할 수 있어요.</p>' : "") +
+  '<div data-gsi></div><p class="hint t-caption1">다음에 같은 계정으로 들어오면 내 프로필이 이어져요.</p></div>';
 // 로그인 전: 구글 버튼 / 처음 로그인: 이름·직군 정하기 / 로그인 뒤: 이름·직군 고치기
-const loginOrProfile = (ctx) => (me() || pdraft.google ? profileForm(ctx) : googleBox());
+const loginOrProfile = (ctx) => (account() ? profileForm(ctx) : googleBox());
 
 function profileForm(ctx) {
   const id = (k) => "pf-" + ctx + "-" + k;
   const err = (k) => (perrors[k] ? '<p class="err t-caption1" id="' + id("err-" + k) + '">' + esc(perrors[k]) + "</p>" : "");
-  const google = !me() && pdraft.google
-    ? '<p class="note t-caption1">구글 계정(' + esc(pdraft.google.email) + ')을 확인했어요. 직군을 고르고 저장해 주세요.</p>'
+  // 이메일은 로그인 직후 확인 문구에만 보여 주고 저장하지 않아요
+  const google = !me() && account()
+    ? '<p class="note t-caption1">' + (pdraft.email ? "구글 계정(" + esc(pdraft.email) + ")을" : "구글 계정을") + " 확인했어요. 직군을 고르고 저장해 주세요.</p>"
     : "";
   return '<form class="form compact" data-form="profile" data-ctx="' + ctx + '" novalidate>' + google +
     '<div class="field"><label for="' + id("name") + '">보여 줄 이름</label><input id="' + id("name") + '" class="text" data-pf="name" maxlength="12" value="' + esc(pdraft.name) + '" aria-describedby="' + id("hint-name") + (perrors.name ? " " + id("err-name") : "") + '"' + (perrors.name ? ' aria-invalid="true"' : "") + ' autocomplete="nickname"><p class="hint t-caption1" id="' + id("hint-name") + '">2~12자. 스터디 카드와 신청 목록에 보여요.</p>' + err("name") + "</div>" +
@@ -128,7 +208,9 @@ function renderMe() {
   mePanel.innerHTML = m
     ? '<div><h2 class="t-headline1">내 프로필</h2><p class="me-now t-body2"><b>' + esc(m.name) + '</b><span class="tag">' + R.ROLE_LABEL[m.role] + "</span></p></div>" +
       profileForm("nav") + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">로그아웃</button>'
-    : '<div><h2 class="t-headline1">구글로 로그인</h2><p class="note t-caption1">로그인하면 스터디를 열거나 신청할 수 있어요.</p></div>' + loginOrProfile("nav");
+    : account()
+      ? '<div><h2 class="t-headline1">이름과 직군 정하기</h2><p class="note t-caption1">저장하면 스터디를 열거나 신청할 수 있어요.</p></div>' + profileForm("nav") + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">다른 계정으로 로그인</button>'
+      : '<div><h2 class="t-headline1">구글로 로그인</h2><p class="note t-caption1">로그인하면 스터디를 열거나 신청할 수 있어요.</p></div>' + googleBox();
 }
 
 function openPanel(focus = true) {
@@ -178,7 +260,7 @@ function seatsBar(s) {
 function studyCard(s) {
   const leader = person(s.leaderId);
   return '<li><a class="card study" href="#/s/' + encodeURIComponent(s.id) + '">' +
-    '<div class="tags">' + topicTag(s) + statusTag(s) + "</div>" +
+    '<div class="tags">' + statusTag(s) + "</div>" +
     '<h3 class="t-headline1">' + esc(s.title) + "</h3>" +
     '<p class="goal t-body2">' + esc(s.goal) + "</p>" +
     '<div class="meta t-caption1">' + metaLine(s) + "</div>" +
@@ -186,20 +268,20 @@ function studyCard(s) {
     seatsBar(s) + mixRow(s) + "</a></li>";
 }
 
+// 다른 사람이 바꾼 내용(새 스터디, 신청, 수락)을 바로 보고 싶을 때 눌러요
+const syncBtn = (label) => '<button type="button" class="btn btn-outline btn-sm" data-act="sync">' + ICON.refresh + esc(label) + "</button>";
+
 // ---------- 스터디 목록 ----------
-let filter = { topic: "all", openOnly: false, needMine: false };
+let filter = { openOnly: false, needMine: false };
 
 function viewList() {
   const m = me();
   if (!m) filter.needMine = false;
   let list = R.sortStudies(S.studies, S.apps, S.people);
-  if (filter.topic !== "all") list = list.filter((s) => s.topic === filter.topic);
   if (filter.openOnly) list = list.filter((s) => R.isOpen(s, S.apps, S.people));
   if (filter.needMine && m) list = list.filter((s) => R.roleMix(s, S.apps, S.people).missing.includes(m.role));
-  const any = filter.topic !== "all" || filter.openOnly || filter.needMine;
+  const any = filter.openOnly || filter.needMine;
 
-  const topicChips = '<button type="button" class="chip" data-filter="topic" data-val="all" aria-pressed="' + (filter.topic === "all") + '">전체</button>' +
-    R.TOPICS.map((t) => '<button type="button" class="chip" data-filter="topic" data-val="' + t.key + '" aria-pressed="' + (filter.topic === t.key) + '">' + esc(t.label) + "</button>").join("");
   const toggles = '<button type="button" class="chip" data-toggle="openOnly" aria-pressed="' + filter.openOnly + '">' + ICON.check + "모집 중만</button>" +
     '<button type="button" class="chip" data-toggle="needMine" aria-pressed="' + filter.needMine + '"' + (m ? "" : ' disabled aria-describedby="needMineHint"') + ">" + ICON.check + "내 직군이 비어 있는 스터디" + (m ? " (" + R.ROLE_LABEL[m.role] + ")" : "") + "</button>" +
     (m ? "" : '<span id="needMineHint" class="t-caption1 note">로그인하면 쓸 수 있어요.</span>');
@@ -209,16 +291,15 @@ function viewList() {
       '<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)">' + (any ? '<button type="button" class="btn btn-outline btn-sm" data-act="clear-filters">필터 지우기</button>' : "") +
       '<a class="btn btn-primary btn-sm" href="#/new">' + ICON.add + "스터디 열기</a></div></div>";
 
-  return '<header class="page-head head-row"><div><h1 class="t-title1">함께할 스터디를 찾아요</h1><p>주제·요일·목표를 보고 신청하거나, 직접 스터디를 열어 함께할 사람을 모아요. 6명 이내를 권장해요.</p></div>' +
+  return '<header class="page-head head-row"><div><h1 class="t-title1">함께할 스터디를 찾아요</h1><p>스터디 이름·요일·목표를 보고 신청하거나, 직접 스터디를 열어 함께할 사람을 모아요. 6명 이내를 권장해요.</p></div>' +
     '<a class="btn btn-primary" href="#/new">' + ICON.add + "스터디 열기</a></header>" +
     '<section aria-labelledby="list-title"><h2 id="list-title" class="sr">스터디 목록</h2>' +
-    '<div class="filters"><div class="row" role="group" aria-labelledby="f-topic-l"><span class="label t-label1" id="f-topic-l">권장 주제</span>' + topicChips + "</div>" +
-    '<div class="row" role="group" aria-labelledby="f-view-l"><span class="label t-label1" id="f-view-l">보기</span>' + toggles + "</div></div>" +
-    '<p class="count t-label1" aria-live="polite">' + list.length + "개 스터디" + (any ? " (필터 적용)" : "") + "</p>" + body + "</section>";
+    '<div class="filters"><div class="row" role="group" aria-labelledby="f-view-l"><span class="label t-label1" id="f-view-l">보기</span>' + toggles + "</div></div>" +
+    '<div class="count-row"><p class="count t-label1" aria-live="polite">' + list.length + "개 스터디" + (any ? " (필터 적용)" : "") + "</p>" + syncBtn("목록 새로 고침") + "</div>" + body + "</section>";
 }
 
 // ---------- 스터디 열기 ----------
-const emptyDraft = () => ({ topic: "", title: "", days: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "" });
+const emptyDraft = () => ({ title: "", days: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "" });
 let draft = emptyDraft();
 let derrors = {};
 
@@ -228,14 +309,11 @@ function viewNew() {
   const desc = (k) => ' aria-describedby="hint-' + k + (derrors[k] ? " err-" + k : "") + '"' + (derrors[k] ? ' aria-invalid="true"' : "");
   const gdesc = (k) => ' aria-describedby="hint-' + k + (derrors[k] ? " err-" + k : "") + '"';
   const profileBox = m ? '<p class="note t-label1" style="margin-bottom:var(--spacing-16)">모집자: <b>' + esc(m.name) + "</b> · " + R.ROLE_LABEL[m.role] + "</p>"
-    : '<section class="card" aria-labelledby="pf-title" style="max-width:640px;margin-bottom:var(--spacing-24)"><h2 id="pf-title" class="t-headline1">먼저 구글로 로그인해 주세요</h2><p class="note t-caption1" style="margin-bottom:var(--spacing-12)">스터디를 연 사람(모집자)으로 이름과 직군이 보여요.</p>' + loginOrProfile("page") + "</section>";
+    : '<section class="card" aria-labelledby="pf-title" style="max-width:640px;margin-bottom:var(--spacing-24)"><h2 id="pf-title" class="t-headline1">' + (account() ? "먼저 이름과 직군을 정해 주세요" : "먼저 구글로 로그인해 주세요") + '</h2><p class="note t-caption1" style="margin-bottom:var(--spacing-12)">스터디를 연 사람(모집자)으로 이름과 직군이 보여요.</p>' + loginOrProfile("page") + "</section>";
   return '<header class="page-head"><a class="more t-label1" href="#/">' + ICON.back + '목록으로</a><h1 class="t-title1" style="margin-top:var(--spacing-8)">스터디 열기</h1><p>스터디 이름, 요일, 간단 목표를 적으면 다른 사람이 보고 신청해요.</p></header>' +
     profileBox +
     '<form class="form" id="studyForm" novalidate>' +
-    '<div class="field" role="group" aria-labelledby="l-topic"' + gdesc("topic") + '><span class="label" id="l-topic">권장 주제 (선택)</span><div class="chips">' +
-      R.TOPICS.map((t) => '<button type="button" class="chip" data-pick="topic" data-val="' + t.key + '" aria-pressed="' + (draft.topic === t.key) + '">' + esc(t.label) + "</button>").join("") +
-      '</div><p class="hint t-caption1" id="hint-topic">강사님이 추천한 10월 파이썬 주제예요. 다른 주제면 고르지 않고 스터디 이름에 적어요. 한 번 더 누르면 풀려요.</p>' + err("topic") + "</div>" +
-    '<div class="field"><label for="f-title">스터디 이름</label><input id="f-title" class="text" data-d="title" maxlength="40" value="' + esc(draft.title) + '"' + desc("title") + '><p class="hint t-caption1" id="hint-title">2~40자. 예: pandas로 CSV 분석해 보기</p>' + err("title") + "</div>" +
+    '<div class="field"><label for="f-title">스터디 이름</label><input id="f-title" class="text" data-d="title" maxlength="40" value="' + esc(draft.title) + '"' + desc("title") + '><p class="hint t-caption1" id="hint-title">2~40자. 무엇을 공부하는지 이름에 담아요. 예: pandas로 CSV 분석해 보기</p>' + err("title") + "</div>" +
     '<div class="field" role="group" aria-labelledby="l-days"' + gdesc("days") + '><span class="label" id="l-days">진행 요일</span><div class="chips">' +
       R.DAYS.map((d) => '<button type="button" class="chip" data-pick="days" data-val="' + d + '" aria-pressed="' + draft.days.includes(d) + '">' + d + "</button>").join("") +
       '</div><p class="hint t-caption1" id="hint-days"><span id="perWeekLive" aria-live="polite">' + perWeekText(draft.days.length) + "</span> 10/19부터 진행해요.</p>" + err("days") + "</div>" +
@@ -265,7 +343,7 @@ function viewDetail(id) {
   if (!s) return '<div class="sec"><div class="empty">찾는 스터디가 없어요. 주소를 확인해 주세요.<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)"><a class="btn btn-outline btn-sm" href="#/">스터디 목록</a><a class="btn btn-primary btn-sm" href="#/new">스터디 열기</a></div></div></div>';
   const m = me();
   const leader = person(s.leaderId);
-  const isLeader = !!m && m.id === s.leaderId;
+  const isLeader = !!m && R.canManage(s, m.id).ok;
   const list = R.members(s, S.apps, S.people);
   const left = R.seatsLeft(s, S.apps, S.people);
   const open = R.isOpen(s, S.apps, S.people);
@@ -288,7 +366,7 @@ function viewDetail(id) {
         '<div class="actions"><button type="button" class="btn btn-primary btn-sm" data-act="accept" data-app="' + esc(a.id) + '"' + (full ? " disabled" : "") + ' aria-label="' + esc(p.name) + '님 수락">수락</button><button type="button" class="btn btn-outline btn-sm" data-act="reject" data-app="' + esc(a.id) + '" aria-label="' + esc(p.name) + '님 거절">거절</button></div></li>'; }).join("") + "</ul>"
         : '<p class="note t-body2">아직 대기 중인 신청이 없어요.</p>') +
       (s.closed ? '<p class="note t-caption1" style="margin-top:var(--spacing-12)">모집을 마감했어요.</p>'
-        : '<div class="actions" style="margin-top:var(--spacing-16)"><button type="button" class="btn btn-outline btn-sm" data-act="close" data-study="' + esc(s.id) + '">모집 마감하기</button></div>') + "</section>";
+        : '<div class="actions" style="margin-top:var(--spacing-16)">' + syncBtn("새 신청 불러오기") + '<button type="button" class="btn btn-outline btn-sm" data-act="close" data-study="' + esc(s.id) + '">모집 마감하기</button></div>') + "</section>";
   } else {
     const mine = m ? R.myApplication(s, S.apps, m.id) : null;
     const can = R.canApply(s, S.apps, S.people, m ? m.id : null);
@@ -299,14 +377,15 @@ function viewDetail(id) {
         '<div class="actions"><button class="btn btn-primary" type="submit">' + (mine && mine.status === "rejected" ? "다시 신청하기" : "신청하기") + "</button></div></form>";
     } else {
       box += '<p class="note t-body2" style="margin:0">' + esc(can.reason) + "</p>" +
-        (m ? "" : '<div class="actions" style="margin-top:var(--spacing-12)"><button type="button" class="btn btn-primary btn-sm" data-act="open-me">구글로 로그인</button></div>');
+        (m ? (mine && mine.status === "pending" ? '<div class="actions" style="margin-top:var(--spacing-12)">' + syncBtn("내 신청 상태 새로 고침") + "</div>" : "")
+          : '<div class="actions" style="margin-top:var(--spacing-12)"><button type="button" class="btn btn-primary btn-sm" data-act="open-me">' + (account() ? "이름과 직군 정하기" : "구글로 로그인") + "</button></div>");
     }
     side += box + "</section>";
   }
   if (!open) side += nextSteps(s);
 
   return '<header class="page-head"><a class="more t-label1" href="#/">' + ICON.back + '목록으로</a>' +
-    '<div class="actions" style="margin-top:var(--spacing-12)">' + topicTag(s) + statusTag(s) + "</div>" +
+    '<div class="actions" style="margin-top:var(--spacing-12)">' + statusTag(s) + "</div>" +
     '<h1 class="t-title1" style="margin-top:var(--spacing-8)">' + esc(s.title) + "</h1>" +
     "<p>" + metaLine(s) + " · 모집자 " + (leader ? esc(leader.name) + "(" + R.ROLE_LABEL[leader.role] + ")" : "알 수 없음") + "</p>" +
     '<div class="goal-box t-body2"><b>목표</b> ' + esc(s.goal) + "</div></header>" +
@@ -325,13 +404,13 @@ function viewMy() {
   const openedBox = '<section class="sec" aria-labelledby="opened-title"><div class="sec-head"><h2 id="opened-title" class="t-title3">내가 연 스터디</h2><a class="btn btn-primary btn-sm" href="#/new">' + ICON.add + "스터디 열기</a></div>" +
     (opened.length ? '<ul class="rows card">' + opened.map((s) => {
       const pend = S.apps.filter((a) => a.studyId === s.id && a.status === "pending").length;
-      return '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + '</a><small>' + (s.topic ? esc(topicShort(s.topic)) + " · " : "") + metaLine(s) + " · " + R.members(s, S.apps, S.people).length + "/" + s.capacity + "명</small></div>" +
+      return '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + '</a><small>' + metaLine(s) + " · " + R.members(s, S.apps, S.people).length + "/" + s.capacity + "명</small></div>" +
         '<div class="actions">' + (pend ? '<span class="tag tag-brand" style="font-weight:600">대기 ' + pend + "명</span>" : "") + statusTag(s) + "</div></li>";
     }).join("") + "</ul>"
       : '<div class="empty">아직 연 스터디가 없어요.<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)"><a class="btn btn-primary btn-sm" href="#/new">스터디 열기</a></div></div>') + "</section>";
 
   const appliedBox = '<section class="sec" aria-labelledby="applied-title" style="padding-top:0"><div class="sec-head"><h2 id="applied-title" class="t-title3">신청한 스터디</h2></div>' +
-    (applied.length ? '<ul class="rows card">' + applied.map(({ s, a }) => '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + "</a><small>" + (s.topic ? esc(topicShort(s.topic)) + " · " : "") + metaLine(s) + "</small></div>" +
+    (applied.length ? '<ul class="rows card">' + applied.map(({ s, a }) => '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + "</a><small>" + metaLine(s) + "</small></div>" +
       '<div class="actions"><span class="tag status-' + a.status + '">' + STATUS[a.status] + "</span></div></li>").join("") + "</ul>"
       : '<div class="empty">아직 신청한 스터디가 없어요.<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)"><a class="btn btn-outline btn-sm" href="#/">스터디 둘러보기</a></div></div>') + "</section>";
 
@@ -365,7 +444,12 @@ function focusFirstError(root) {
 }
 
 // ---------- 동작 ----------
-window.addEventListener("hashchange", () => { closePanel(false); route(); app.focus({ preventScroll: true }); scrollTo(0, 0); });
+window.addEventListener("hashchange", () => {
+  if (!S) return;
+  closePanel(false); route(); app.focus({ preventScroll: true }); scrollTo(0, 0);
+  syncState();
+});
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncState(); });
 
 meBtn.addEventListener("click", () => (mePanel.hidden ? openPanel() : closePanel(true)));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !mePanel.hidden) closePanel(true); });
@@ -397,39 +481,57 @@ document.addEventListener("click", (e) => {
         const live = document.getElementById("perWeekLive"); if (live) live.textContent = perWeekText(draft.days.length);
         return;
       }
-      if (g === "topic" && draft.topic === v) { draft.topic = ""; b.setAttribute("aria-pressed", "false"); return; } // 주제는 고르지 않아도 돼요
       if (g === "prole") pdraft.role = v; else draft[g] = v;
       box.querySelectorAll("[data-pick]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
       return;
     }
 
-    if (b.dataset.filter === "topic") { filter.topic = b.dataset.val; rerender('[data-filter="topic"][data-val="' + b.dataset.val + '"]'); return; }
     if (b.dataset.toggle) { filter[b.dataset.toggle] = !filter[b.dataset.toggle]; rerender('[data-toggle="' + b.dataset.toggle + '"]'); return; }
-    if (b.dataset.act === "clear-filters") { filter = { topic: "all", openOnly: false, needMine: false }; rerender('[data-filter="topic"][data-val="all"]'); toast("필터를 지웠어요."); return; }
+    if (b.dataset.act === "clear-filters") { filter = { openOnly: false, needMine: false }; rerender('[data-toggle="openOnly"]'); toast("필터를 지웠어요."); return; }
 
+    if (b.dataset.act === "sync") {
+      run(b, "불러오는 중…", async () => {
+        await loadState();
+        refresh('[data-act="sync"]');
+        toast("최신 내용을 불러왔어요.");
+      });
+      return;
+    }
     if (b.dataset.act === "accept" || b.dataset.act === "reject") {
       const a = S.apps.find((x) => x.id === b.dataset.app);
-      const s = a && study(a.studyId), p = a && person(a.personId);
-      if (!s) return;
+      const p = a && person(a.personId);
+      if (!a) return;
       const status = b.dataset.act === "accept" ? "accepted" : "rejected";
-      S.apps = R.decide(s, S.apps, S.people, a.id, status); save(); refresh("#pend-title");
-      const full = R.seatsLeft(s, S.apps, S.people) === 0;
-      toast((p ? p.name + "님 신청을 " : "신청을 ") + (status === "accepted" ? "수락했어요." : "거절했어요.") + (status === "accepted" && full ? " 정원이 찼어요. 결성 다음 할 일을 확인해요." : ""));
+      run(b, status === "accepted" ? "수락하는 중…" : "거절하는 중…", async () => {
+        await api("PATCH", "apps/" + encodeURIComponent(a.id), { status });
+        refresh("#pend-title");
+        const s = study(a.studyId);
+        const full = !!s && R.seatsLeft(s, S.apps, S.people) === 0;
+        toast((p ? p.name + "님 신청을 " : "신청을 ") + (status === "accepted" ? "수락했어요." : "거절했어요.") + (status === "accepted" && full ? " 정원이 찼어요. 결성 다음 할 일을 확인해요." : ""));
+      });
       return;
     }
     if (b.dataset.act === "close") {
       const s = study(b.dataset.study);
       if (!s || !confirm("모집을 마감할까요? 마감하면 새 신청을 받을 수 없어요.")) return;
-      s.closed = true; save(); refresh("#next-title"); toast("모집을 마감했어요. 슬랙 채널을 만들어 시작해요.");
+      run(b, "마감하는 중…", async () => {
+        await api("PATCH", "studies/" + encodeURIComponent(s.id), { closed: true });
+        refresh("#next-title"); toast("모집을 마감했어요. 슬랙 채널을 만들어 시작해요.");
+      });
       return;
     }
     if (b.dataset.act === "logout") {
-      S.meId = null; save(); pdraft = { name: "", role: "" }; perrors = {};
+      saveAuth(null); expired = false; pdraft = { name: "", role: "" }; perrors = {};
+      try { window.google.accounts.id.disableAutoSelect(); } catch (err) { /* 구글 스크립트가 없어도 로그아웃돼요 */ }
       closePanel(false); refresh(); toast("로그아웃했어요.");
       return;
     }
   } catch (err) { toast(err.message); }
 });
+
+// 서버가 칸마다 이유를 돌려주면(400) 그 칸 아래에 보여 줘요
+const fieldErrors = (err) => (err.status === 400 && err.fields ? err.fields : null);
+const submitBtn = (f) => f.querySelector('[type="submit"]');
 
 document.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -439,49 +541,59 @@ document.addEventListener("submit", (e) => {
       const p = { name: pdraft.name.trim(), role: pdraft.role };
       perrors = R.validateProfile(p);
       const ctx = f.dataset.ctx;
+      const root = () => (ctx === "nav" ? mePanel : app);
       if (Object.keys(perrors).length) {
         refresh();
-        const root = ctx === "nav" ? mePanel : app;
         toast("이름과 직군을 확인해 주세요.");
-        focusFirstError(root);
+        focusFirstError(root());
         return;
       }
-      const cur = me();
-      if (cur) {
-        cur.name = p.name; cur.role = p.role; save();
+      if (!account()) { refresh(); toast("먼저 구글로 로그인해 주세요."); return; }
+      const wasMe = !!me();
+      run(submitBtn(f), "저장하는 중…", async () => {
+        try { await api("PUT", "me", p); }
+        catch (err) {
+          if (!fieldErrors(err)) throw err;
+          perrors = fieldErrors(err); refresh(); toast(err.message); focusFirstError(root());
+          return;
+        }
         pdraft = { name: "", role: "" }; perrors = {};
-        closePanel(false); refresh(); toast("프로필을 고쳤어요.");
+        closePanel(false); refresh();
+        toast(wasMe ? "프로필을 고쳤어요." : p.name + "님, 반가워요. 이제 스터디를 열거나 신청할 수 있어요.");
         if (ctx === "nav") meBtn.focus();
-        return;
-      }
-      if (!pdraft.google) { toast("먼저 구글로 로그인해 주세요."); return; }
-      p.id = "me-g" + pdraft.google.sub;
-      S.people = S.people.filter((x) => x.id !== p.id).concat(p); S.meId = p.id; save();
-      pdraft = { name: "", role: "" }; perrors = {};
-      closePanel(false); refresh();
-      toast(p.name + "님, 반가워요. 이제 스터디를 열거나 신청할 수 있어요.");
-      if (ctx === "nav") meBtn.focus();
+      });
       return;
     }
     if (f.id === "studyForm") {
       const m = me();
-      const s = { topic: draft.topic, title: String(draft.title).trim(), days: R.DAYS.filter((d) => draft.days.includes(d)), mode: draft.mode, capacity: Number(draft.capacity), goal: String(draft.goal).trim() };
+      const s = { title: String(draft.title).trim(), days: R.DAYS.filter((d) => draft.days.includes(d)), mode: draft.mode, capacity: Number(draft.capacity), goal: String(draft.goal).trim() };
       derrors = R.validateStudy(s);
       if (Object.keys(derrors).length) { rerender(); toast("입력한 내용을 확인해 주세요."); focusFirstError(document.getElementById("studyForm")); return; }
-      if (!m) { toast("먼저 구글로 로그인해 주세요."); const g = app.querySelector("#pf-title"); if (g) g.scrollIntoView({ block: "center" }); return; }
-      s.id = nextId("s"); s.leaderId = m.id; s.closed = false; s.createdAt = nowMinute();
-      S.studies.push(s); save();
-      draft = emptyDraft(); derrors = {};
-      location.hash = "#/s/" + encodeURIComponent(s.id);
-      toast("스터디를 열었어요. 신청이 오면 여기에서 수락해요.");
+      if (!m) { toast(account() ? "먼저 이름과 직군을 저장해 주세요." : "먼저 구글로 로그인해 주세요."); const g = app.querySelector("#pf-title"); if (g) g.scrollIntoView({ block: "center" }); return; }
+      run(submitBtn(f), "여는 중…", async () => {
+        let d;
+        try { d = await api("POST", "studies", s); }
+        catch (err) {
+          if (!fieldErrors(err)) throw err;
+          derrors = fieldErrors(err); rerender(); toast(err.message); focusFirstError(document.getElementById("studyForm"));
+          return;
+        }
+        draft = emptyDraft(); derrors = {};
+        location.hash = "#/s/" + encodeURIComponent(d.study.id);
+        toast("스터디를 열었어요. 신청이 오면 여기에서 수락해요.");
+      });
       return;
     }
     if (f.id === "applyForm") {
-      const s = study(f.dataset.study), m = me();
+      const s = study(f.dataset.study);
       if (!s) return;
+      if (!me()) { toast(account() ? "먼저 이름과 직군을 저장해 주세요." : "먼저 구글로 로그인해 주세요."); openPanel(); return; }
       const msg = (document.getElementById("f-msg") || {}).value || "";
-      S.apps = R.apply(s, S.apps, S.people, m ? m.id : null, nextId("a"), msg); save(); refresh("#apply-title");
-      toast("신청했어요. 모집자가 수락하면 함께해요.");
+      run(submitBtn(f), "신청하는 중…", async () => {
+        await api("POST", "apps", { studyId: s.id, message: msg });
+        refresh("#apply-title");
+        toast("신청했어요. 모집자가 수락하면 함께해요.");
+      });
     }
   } catch (err) { toast(err.message); }
 });
