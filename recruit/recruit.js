@@ -1,6 +1,7 @@
 // 공지용 스터디 모집 화면. 규칙 계산은 recruit-logic.js가 하고, 여기서는 그리기와 서버 부르기만 해요.
 // 스터디·신청·프로필은 서버(/api/recruit → Vercel Storage의 Redis)에 있어서 여러 사람이 같은 목록을 봐요.
 // 이 브라우저에는 로그인 확인용 구글 토큰만 만료(1시간)까지 둬요. 서버가 쓰기 요청마다 이 토큰을 검증해요.
+// 목록 검색, 모집 마감·다시 열기·모집 취소(모집자), 신청 취소(신청자)는 모두 recruit-logic 규칙을 따르고 서버가 한 번 더 막아요.
 import * as R from "/recruit/recruit-logic.js";
 
 const AUTH_KEY = "study-recruit:auth";
@@ -97,7 +98,7 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 const person = (id) => (S ? S.people.find((p) => p.id === id) : undefined);
 const study = (id) => S.studies.find((s) => s.id === id);
 const me = () => { const a = account(); return a ? person("me-g" + a.sub) || null : null; };
-const STATUS = { pending: "대기", accepted: "수락", rejected: "거절" };
+const STATUS = { pending: "대기", accepted: "수락", rejected: "거절", withdrawn: "신청 취소" };
 const ICON = {
   add: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>',
   back: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
@@ -106,6 +107,10 @@ const ICON = {
   open: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>',
   flag: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.4 6 14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>',
   refresh: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
+  search: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>',
+  block: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.902 7.902 0 0 1 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.902 7.902 0 0 1 20 12c0 4.42-3.58 8-8 8z"/></svg>',
+  replay: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>',
+  info: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>',
 };
 
 function toast(msg) {
@@ -116,6 +121,36 @@ function toast(msg) {
 function showError(msg) {
   app.innerHTML = '<div class="sec"><div class="alert" role="alert">' + ICON.warn + '<div><b></b><p class="t-caption1" style="margin:var(--spacing-4) 0 0">잠시 뒤 다시 불러오면 대부분 해결돼요.</p><div><button class="btn btn-outline btn-sm" data-act="reload" style="margin-top:var(--spacing-8)">다시 불러오기</button></div></div></div></div>';
   app.querySelector("b").textContent = msg;
+}
+
+// 되돌리기 어려운 동작 전에 띄우는 확인 창. 기본 confirm()은 버튼이 "확인·취소"라 "모집 취소"와 헷갈려서 <dialog>로 만들어요.
+// 처음 포커스는 '돌아가기'에 둬서 Enter를 잘못 눌러도 아무 일도 일어나지 않아요. Esc나 바깥을 누르면 돌아가기와 같아요.
+const dlg = document.getElementById("confirmDlg");
+function confirmBox({ title, body, ok, back = "돌아가기", danger = false }) {
+  const opener = document.activeElement;
+  const okBtn = dlg.querySelector('[data-dlg="ok"]'), backBtn = dlg.querySelector('[data-dlg="back"]');
+  dlg.querySelector("#dlgTitle").textContent = title;
+  dlg.querySelector("#dlgBody").textContent = body;
+  okBtn.textContent = ok; backBtn.textContent = back;
+  okBtn.className = "btn btn-sm " + (danger ? "btn-danger" : "btn-primary");
+  dlg.returnValue = "";
+  dlg.showModal();
+  backBtn.focus();
+  return new Promise((resolve) => {
+    dlg.addEventListener("close", () => {
+      resolve(dlg.returnValue === "ok");
+      if (opener && opener.isConnected) opener.focus();
+    }, { once: true });
+  });
+}
+dlg.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-dlg]");
+  if (b) dlg.close(b.dataset.dlg);
+  else if (e.target === dlg) dlg.close("back"); // 창 바깥(어두운 곳)
+});
+// 규칙 함수가 막는지 미리 보고 이유를 받아요 (화면에서 규칙을 따로 계산하지 않으려고요)
+function check(fn) {
+  try { fn(); return { ok: true }; } catch (e) { return { ok: false, reason: e.message }; }
 }
 
 // 서버에 보내는 동안 버튼을 막고 "…하는 중"을 보여 줘요. 한 번에 하나만 보내요.
@@ -227,10 +262,14 @@ function closePanel(returnFocus) {
 const perWeekText = (n) => (n ? "주 " + n + "회로 진행해요." : "고른 요일 수만큼 주 횟수가 정해져요.");
 function metaLine(s) { return "주 " + s.days.length + "회 · " + esc(s.days.join("·")) + " · " + esc(s.mode); }
 
+const STUDY_TAG = { open: ["tag status-open", "모집 중"], full: ["tag", "정원 마감"], closed: ["tag", "마감"], canceled: ["tag tag-negative", "취소됨"] };
 function statusTag(s) {
-  if (s.closed) return '<span class="tag">마감</span>';
-  if (R.seatsLeft(s, S.apps, S.people) === 0) return '<span class="tag">정원 마감</span>';
-  return '<span class="tag status-open">모집 중</span>';
+  const [cls, label] = STUDY_TAG[R.studyStatus(s, S.apps, S.people)];
+  return '<span class="' + cls + '">' + label + "</span>";
+}
+// 내 신청 태그: 스터디가 취소됐으면 신청 상태보다 "스터디 취소됨"을 먼저 보여 줘요
+function appTag(s, a) {
+  return s.canceled ? '<span class="tag tag-negative">스터디 취소됨</span>' : '<span class="tag status-' + a.status + '">' + STATUS[a.status] + "</span>";
 }
 
 // 받침이 있으면 "이", 없으면 "가" (PO처럼 영문은 "가")
@@ -272,30 +311,52 @@ function studyCard(s) {
 const syncBtn = (label) => '<button type="button" class="btn btn-outline btn-sm" data-act="sync">' + ICON.refresh + esc(label) + "</button>";
 
 // ---------- 스터디 목록 ----------
-let filter = { openOnly: false, needMine: false };
+// 검색어(q)는 스터디 이름·목표·모집자 이름에서 찾고, "모집 중만"·"내 직군이 비어 있는 스터디"와 함께 걸러요. 취소한 스터디는 보이지 않아요.
+let filter = { q: "", openOnly: false, needMine: false };
+const anyFilter = () => !!(filter.q.trim() || filter.openOnly || filter.needMine);
+
+function listedStudies() {
+  const m = me();
+  if (!m) filter.needMine = false;
+  return R.filterStudies(S.studies, S.apps, S.people, { q: filter.q, openOnly: filter.openOnly, needRole: filter.needMine && m ? m.role : "" });
+}
+const countText = (n) => (anyFilter() ? "조건에 맞는 스터디 " + n + "개" : "스터디 " + n + "개");
+
+function listBody(list) {
+  if (list.length) return '<ul class="studies">' + list.map(studyCard).join("") + "</ul>";
+  const any = anyFilter(), q = filter.q.trim();
+  return '<div class="empty"><b>' + (q ? "‘" + esc(q) + "’에 맞는 스터디가 없어요." : any ? "조건에 맞는 스터디가 없어요." : "아직 열린 스터디가 없어요.") + "</b>" +
+    (any ? '<p class="t-caption1" style="margin:var(--spacing-6) 0 0">다른 낱말로 찾거나 필터를 지워 보세요. 원하는 스터디가 없으면 직접 열 수 있어요.</p>' : "") +
+    '<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)">' + (any ? '<button type="button" class="btn btn-outline btn-sm" data-act="clear-filters">필터 지우기</button>' : "") +
+    '<a class="btn btn-primary btn-sm" href="#/new">' + ICON.add + "스터디 열기</a></div></div>";
+}
+
+// 검색어를 칠 때는 목록과 개수만 바꿔요 (검색창을 다시 그리지 않아서 입력 중인 글자와 포커스가 그대로예요)
+function updateResults() {
+  const box = document.getElementById("results"), count = document.getElementById("count");
+  if (!box || !count || !S) return;
+  const list = listedStudies();
+  box.innerHTML = listBody(list);
+  count.textContent = countText(list.length);
+}
 
 function viewList() {
   const m = me();
-  if (!m) filter.needMine = false;
-  let list = R.sortStudies(S.studies, S.apps, S.people);
-  if (filter.openOnly) list = list.filter((s) => R.isOpen(s, S.apps, S.people));
-  if (filter.needMine && m) list = list.filter((s) => R.roleMix(s, S.apps, S.people).missing.includes(m.role));
-  const any = filter.openOnly || filter.needMine;
+  const list = listedStudies();
 
+  const search = '<div class="row"><label class="label t-label1" for="f-q">찾기</label><div class="input search">' + ICON.search +
+    '<input id="f-q" type="search" data-search value="' + esc(filter.q) + '" placeholder="스터디 이름·목표·모집자 이름" autocomplete="off" enterkeyhint="search" aria-describedby="f-q-hint"></div>' +
+    '<span id="f-q-hint" class="sr">칠 때마다 아래 목록이 바뀌어요.</span></div>';
   const toggles = '<button type="button" class="chip" data-toggle="openOnly" aria-pressed="' + filter.openOnly + '">' + ICON.check + "모집 중만</button>" +
     '<button type="button" class="chip" data-toggle="needMine" aria-pressed="' + filter.needMine + '"' + (m ? "" : ' disabled aria-describedby="needMineHint"') + ">" + ICON.check + "내 직군이 비어 있는 스터디" + (m ? " (" + R.ROLE_LABEL[m.role] + ")" : "") + "</button>" +
     (m ? "" : '<span id="needMineHint" class="t-caption1 note">로그인하면 쓸 수 있어요.</span>');
 
-  const body = list.length ? '<ul class="studies">' + list.map(studyCard).join("") + "</ul>"
-    : '<div class="empty">' + (any ? "조건에 맞는 스터디가 없어요." : "아직 열린 스터디가 없어요.") +
-      '<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)">' + (any ? '<button type="button" class="btn btn-outline btn-sm" data-act="clear-filters">필터 지우기</button>' : "") +
-      '<a class="btn btn-primary btn-sm" href="#/new">' + ICON.add + "스터디 열기</a></div></div>";
-
   return '<header class="page-head head-row"><div><h1 class="t-title1">함께할 스터디를 찾아요</h1><p>스터디 이름·요일·목표를 보고 신청하거나, 직접 스터디를 열어 함께할 사람을 모아요. 6명 이내를 권장해요.</p></div>' +
     '<a class="btn btn-primary" href="#/new">' + ICON.add + "스터디 열기</a></header>" +
     '<section aria-labelledby="list-title"><h2 id="list-title" class="sr">스터디 목록</h2>' +
-    '<div class="filters"><div class="row" role="group" aria-labelledby="f-view-l"><span class="label t-label1" id="f-view-l">보기</span>' + toggles + "</div></div>" +
-    '<div class="count-row"><p class="count t-label1" aria-live="polite">' + list.length + "개 스터디" + (any ? " (필터 적용)" : "") + "</p>" + syncBtn("목록 새로 고침") + "</div>" + body + "</section>";
+    '<div class="filters">' + search + '<div class="row" role="group" aria-labelledby="f-view-l"><span class="label t-label1" id="f-view-l">보기</span>' + toggles + "</div></div>" +
+    '<div class="count-row"><p class="count t-label1" id="count" role="status" aria-atomic="true">' + countText(list.length) + "</p>" + syncBtn("목록 새로 고침") + "</div>" +
+    '<div id="results">' + listBody(list) + "</div></section>";
 }
 
 // ---------- 스터디 열기 ----------
@@ -338,6 +399,47 @@ function nextSteps(s) {
     "</ol></section>";
 }
 
+// 모집자 칸: 대기 신청 수락·거절, 마감·다시 열기, 모집 취소
+function leaderBox(s) {
+  const head = '<section class="card" aria-labelledby="pend-title"><h2 id="pend-title" class="t-headline1" tabindex="-1">신청한 사람';
+  if (s.canceled) return head + '</h2><p class="note t-body2">취소한 스터디라 신청을 더 받지 않아요.</p></section>';
+  const pending = S.apps.filter((a) => a.studyId === s.id && a.status === "pending");
+  const full = R.seatsLeft(s, S.apps, S.people) === 0;
+  let html = head + ' <span class="t-label1 note" aria-live="polite">대기 ' + pending.length + "명</span></h2>" +
+    (full && pending.length ? '<p class="note t-caption1">정원이 다 차서 더 수락할 수 없어요. 거절하거나 그대로 둘 수 있어요.</p>' : "") +
+    (pending.length ? '<ul class="rows">' + pending.map((a) => { const p = person(a.personId); if (!p) return ""; return '<li><div class="who"><b>' + esc(p.name) + ' <span class="tag">' + R.ROLE_LABEL[p.role] + "</span></b><small>" + (a.message ? esc(a.message) : "남긴 말 없음") + "</small></div>" +
+      '<div class="actions"><button type="button" class="btn btn-primary btn-sm" data-act="accept" data-app="' + esc(a.id) + '"' + (full ? " disabled" : "") + ' aria-label="' + esc(p.name) + '님 수락">수락</button><button type="button" class="btn btn-outline btn-sm" data-act="reject" data-app="' + esc(a.id) + '" aria-label="' + esc(p.name) + '님 거절">거절</button></div></li>'; }).join("") + "</ul>"
+      : '<p class="note t-body2">아직 대기 중인 신청이 없어요.</p>');
+  if (s.closed) {
+    const re = check(() => R.reopenStudy(s, S.apps, S.people, s.leaderId));
+    html += '<p class="note t-caption1" style="margin-top:var(--spacing-12)">모집을 마감했어요. ' + (re.ok ? "다시 열면 새 신청을 받아요." : esc(re.reason)) + "</p>" +
+      (re.ok ? '<div class="actions" style="margin-top:var(--spacing-8)"><button type="button" class="btn btn-outline btn-sm" data-act="reopen" data-study="' + esc(s.id) + '">' + ICON.replay + "다시 열기</button></div>" : "");
+  } else {
+    html += '<div class="actions" style="margin-top:var(--spacing-16)">' + syncBtn("새 신청 불러오기") + '<button type="button" class="btn btn-outline btn-sm" data-act="close" data-study="' + esc(s.id) + '">모집 마감하기</button></div>';
+  }
+  return html + '<div class="danger-zone"><hr class="divider"><div><b class="t-label1">모집 취소</b><p class="note t-caption1">목록에서 내리고 신청을 더 받지 않아요. 함께하기로 한 사람에게는 ‘취소됨’으로 보여요. 되돌릴 수 없어요.</p></div>' +
+    '<button type="button" class="btn btn-danger btn-sm" data-act="cancel-study" data-study="' + esc(s.id) + '">' + ICON.block + "모집 취소하기</button></div></section>";
+}
+
+// 신청자 칸: 신청하기, 내 신청 상태, 대기 중이면 신청 취소
+function applyBox(s, m) {
+  const mine = m ? R.myApplication(s, S.apps, m.id) : null;
+  const can = R.canApply(s, S.apps, S.people, m ? m.id : null);
+  let box = '<section class="card" aria-labelledby="apply-title"><h2 id="apply-title" class="t-headline1" tabindex="-1">신청하기</h2>';
+  if (mine) box += '<p class="t-body2" style="margin:0 0 var(--spacing-12)">내 신청 <span class="tag status-' + mine.status + '">' + STATUS[mine.status] + "</span>" + (mine.message && mine.status !== "withdrawn" ? '<br><small class="note">' + esc(mine.message) + "</small>" : "") + "</p>";
+  if (can.ok) {
+    box += '<form id="applyForm" class="form compact" data-study="' + esc(s.id) + '" novalidate><div class="field"><label for="f-msg">한 줄 메시지 (선택)</label><input id="f-msg" class="text" maxlength="80" aria-describedby="hint-msg" placeholder="예: 차트 화면을 맡아 볼게요"><p class="hint t-caption1" id="hint-msg">80자 안으로 적어요. 모집자에게 보여요.</p></div>' +
+      '<div class="actions"><button class="btn btn-primary" type="submit">' + (mine && (mine.status === "rejected" || mine.status === "withdrawn") ? "다시 신청하기" : "신청하기") + "</button></div></form>";
+  } else {
+    box += '<p class="note t-body2" style="margin:0">' + esc(can.reason) + "</p>";
+    if (!m) box += '<div class="actions" style="margin-top:var(--spacing-12)"><button type="button" class="btn btn-primary btn-sm" data-act="open-me">' + (account() ? "이름과 직군 정하기" : "구글로 로그인") + "</button></div>";
+    else if (mine && mine.status === "pending" && !s.canceled) {
+      box += '<div class="actions" style="margin-top:var(--spacing-12)">' + syncBtn("내 신청 상태 새로 고침") + '<button type="button" class="btn btn-outline btn-sm" data-act="withdraw" data-app="' + esc(mine.id) + '">신청 취소하기</button></div>';
+    }
+  }
+  return box + "</section>";
+}
+
 function viewDetail(id) {
   const s = study(id);
   if (!s) return '<div class="sec"><div class="empty">찾는 스터디가 없어요. 주소를 확인해 주세요.<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)"><a class="btn btn-outline btn-sm" href="#/">스터디 목록</a><a class="btn btn-primary btn-sm" href="#/new">스터디 열기</a></div></div></div>';
@@ -345,50 +447,29 @@ function viewDetail(id) {
   const leader = person(s.leaderId);
   const isLeader = !!m && R.canManage(s, m.id).ok;
   const list = R.members(s, S.apps, S.people);
-  const left = R.seatsLeft(s, S.apps, S.people);
   const open = R.isOpen(s, S.apps, S.people);
   const mix = R.roleMix(s, S.apps, S.people);
 
-  const membersBox = '<section class="card" aria-labelledby="mem-title"><h2 id="mem-title" class="t-headline1">함께하는 사람</h2>' +
-    seatsBar(s) +
+  const membersBox = '<section class="card" aria-labelledby="mem-title"><h2 id="mem-title" class="t-headline1">' + (s.canceled ? "함께하기로 했던 사람" : "함께하는 사람") + "</h2>" +
+    (s.canceled ? "" : seatsBar(s)) +
     '<ul class="rows">' + list.map((p) => '<li><div class="who"><b>' + esc(p.name) + (m && p.id === m.id ? ' <span class="t-caption1 note">(나)</span>' : "") + '</b></div><div class="actions">' +
       (p.id === s.leaderId ? '<span class="tag tag-brand">모집자</span>' : "") + '<span class="tag">' + R.ROLE_LABEL[p.role] + "</span></div></li>").join("") + "</ul>" +
     '<div style="display:grid;gap:var(--spacing-6);margin-top:var(--spacing-8)"><span class="t-label1" style="font-weight:600">직군 구성</span>' + mixRow(s) +
     (mix.missing.length && open ? '<p class="note t-caption1">비개발 직군은 화면 기획·프롬프트를, 개발 직군은 서버·코드를 맡아 함께 만들 수 있어요.</p>' : "") + "</div></section>";
 
-  let side = "";
-  if (isLeader) {
-    const pending = S.apps.filter((a) => a.studyId === s.id && a.status === "pending");
-    const full = left === 0;
-    side += '<section class="card" aria-labelledby="pend-title"><h2 id="pend-title" class="t-headline1" tabindex="-1">신청한 사람 <span class="t-label1 note" aria-live="polite">대기 ' + pending.length + "명</span></h2>" +
-      (full && pending.length ? '<p class="note t-caption1">정원이 다 차서 더 수락할 수 없어요. 거절하거나 그대로 둘 수 있어요.</p>' : "") +
-      (pending.length ? '<ul class="rows">' + pending.map((a) => { const p = person(a.personId); if (!p) return ""; return '<li><div class="who"><b>' + esc(p.name) + ' <span class="tag">' + R.ROLE_LABEL[p.role] + "</span></b><small>" + (a.message ? esc(a.message) : "남긴 말 없음") + "</small></div>" +
-        '<div class="actions"><button type="button" class="btn btn-primary btn-sm" data-act="accept" data-app="' + esc(a.id) + '"' + (full ? " disabled" : "") + ' aria-label="' + esc(p.name) + '님 수락">수락</button><button type="button" class="btn btn-outline btn-sm" data-act="reject" data-app="' + esc(a.id) + '" aria-label="' + esc(p.name) + '님 거절">거절</button></div></li>'; }).join("") + "</ul>"
-        : '<p class="note t-body2">아직 대기 중인 신청이 없어요.</p>') +
-      (s.closed ? '<p class="note t-caption1" style="margin-top:var(--spacing-12)">모집을 마감했어요.</p>'
-        : '<div class="actions" style="margin-top:var(--spacing-16)">' + syncBtn("새 신청 불러오기") + '<button type="button" class="btn btn-outline btn-sm" data-act="close" data-study="' + esc(s.id) + '">모집 마감하기</button></div>') + "</section>";
-  } else {
-    const mine = m ? R.myApplication(s, S.apps, m.id) : null;
-    const can = R.canApply(s, S.apps, S.people, m ? m.id : null);
-    let box = '<section class="card" aria-labelledby="apply-title"><h2 id="apply-title" class="t-headline1" tabindex="-1">신청하기</h2>';
-    if (mine) box += '<p class="t-body2" style="margin:0 0 var(--spacing-12)">내 신청 <span class="tag status-' + mine.status + '">' + STATUS[mine.status] + "</span>" + (mine.message ? '<br><small class="note">' + esc(mine.message) + "</small>" : "") + "</p>";
-    if (can.ok) {
-      box += '<form id="applyForm" class="form compact" data-study="' + esc(s.id) + '" novalidate><div class="field"><label for="f-msg">한 줄 메시지 (선택)</label><input id="f-msg" class="text" maxlength="80" aria-describedby="hint-msg" placeholder="예: 차트 화면을 맡아 볼게요"><p class="hint t-caption1" id="hint-msg">80자 안으로 적어요. 모집자에게 보여요.</p></div>' +
-        '<div class="actions"><button class="btn btn-primary" type="submit">' + (mine && mine.status === "rejected" ? "다시 신청하기" : "신청하기") + "</button></div></form>";
-    } else {
-      box += '<p class="note t-body2" style="margin:0">' + esc(can.reason) + "</p>" +
-        (m ? (mine && mine.status === "pending" ? '<div class="actions" style="margin-top:var(--spacing-12)">' + syncBtn("내 신청 상태 새로 고침") + "</div>" : "")
-          : '<div class="actions" style="margin-top:var(--spacing-12)"><button type="button" class="btn btn-primary btn-sm" data-act="open-me">' + (account() ? "이름과 직군 정하기" : "구글로 로그인") + "</button></div>");
-    }
-    side += box + "</section>";
-  }
-  if (!open) side += nextSteps(s);
+  let side = isLeader ? leaderBox(s) : applyBox(s, m);
+  if (!open && !s.canceled) side += nextSteps(s);
+
+  // 취소된 스터디: 주소로 들어온 사람(함께하던 사람 포함)에게 무슨 일이 있었는지와 할 수 있는 일을 알려 줘요
+  const canceledNote = s.canceled ? '<div class="notice" role="note">' + ICON.info + '<div><b id="cancel-title" tabindex="-1">' + (isLeader ? "이 스터디 모집을 취소했어요." : "모집자가 이 스터디를 취소했어요.") + "</b>" +
+    '<p class="t-caption1">' + (isLeader ? "다른 사람 목록에서 빠졌고 신청을 더 받지 않아요. 함께하기로 한 사람에게는 ‘취소됨’으로 보여요." : "신청과 수락을 더 받지 않아요. 다른 스터디를 찾아 신청해 보세요.") + "</p>" +
+    '<a class="btn btn-outline btn-sm" href="' + (isLeader ? "#/new" : "#/") + '">' + (isLeader ? ICON.add + "새 스터디 열기" : "스터디 목록") + "</a></div></div>" : "";
 
   return '<header class="page-head"><a class="more t-label1" href="#/">' + ICON.back + '목록으로</a>' +
     '<div class="actions" style="margin-top:var(--spacing-12)">' + statusTag(s) + "</div>" +
     '<h1 class="t-title1" style="margin-top:var(--spacing-8)">' + esc(s.title) + "</h1>" +
     "<p>" + metaLine(s) + " · 모집자 " + (leader ? esc(leader.name) + "(" + R.ROLE_LABEL[leader.role] + ")" : "알 수 없음") + "</p>" +
-    '<div class="goal-box t-body2"><b>목표</b> ' + esc(s.goal) + "</div></header>" +
+    '<div class="goal-box t-body2"><b>목표</b> ' + esc(s.goal) + "</div>" + canceledNote + "</header>" +
     '<div class="two">' + membersBox + '<div class="stack">' + side + "</div></div>";
 }
 
@@ -401,17 +482,25 @@ function viewMy() {
   const opened = R.sortStudies(S.studies.filter((s) => s.leaderId === m.id), S.apps, S.people);
   const applied = S.studies.map((s) => ({ s, a: R.myApplication(s, S.apps, m.id) })).filter((x) => x.a && x.s.leaderId !== m.id);
 
-  const openedBox = '<section class="sec" aria-labelledby="opened-title"><div class="sec-head"><h2 id="opened-title" class="t-title3">내가 연 스터디</h2><a class="btn btn-primary btn-sm" href="#/new">' + ICON.add + "스터디 열기</a></div>" +
+  // 내가 연 스터디: 목록에서 바로 마감하거나 다시 열어요 (모집 취소는 되돌릴 수 없어서 상세 화면에서만 해요)
+  const rowAction = (s) => {
+    const st = R.studyStatus(s, S.apps, S.people), name = esc(s.title);
+    if (st === "open" || st === "full") return '<button type="button" class="btn btn-outline btn-sm" data-act="close" data-study="' + esc(s.id) + '" aria-label="' + name + ' 모집 마감하기">마감하기</button>';
+    if (st === "closed" && check(() => R.reopenStudy(s, S.apps, S.people, m.id)).ok) return '<button type="button" class="btn btn-outline btn-sm" data-act="reopen" data-study="' + esc(s.id) + '" aria-label="' + name + ' 다시 열기">' + ICON.replay + "다시 열기</button>";
+    return "";
+  };
+  const openedBox = '<section class="sec" aria-labelledby="opened-title"><div class="sec-head"><h2 id="opened-title" class="t-title3" tabindex="-1">내가 연 스터디</h2><a class="btn btn-primary btn-sm" href="#/new">' + ICON.add + "스터디 열기</a></div>" +
     (opened.length ? '<ul class="rows card">' + opened.map((s) => {
-      const pend = S.apps.filter((a) => a.studyId === s.id && a.status === "pending").length;
+      const pend = s.canceled ? 0 : S.apps.filter((a) => a.studyId === s.id && a.status === "pending").length;
       return '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + '</a><small>' + metaLine(s) + " · " + R.members(s, S.apps, S.people).length + "/" + s.capacity + "명</small></div>" +
-        '<div class="actions">' + (pend ? '<span class="tag tag-brand" style="font-weight:600">대기 ' + pend + "명</span>" : "") + statusTag(s) + "</div></li>";
+        '<div class="actions">' + (pend ? '<span class="tag tag-brand" style="font-weight:600">대기 ' + pend + "명</span>" : "") + statusTag(s) + rowAction(s) + "</div></li>";
     }).join("") + "</ul>"
       : '<div class="empty">아직 연 스터디가 없어요.<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)"><a class="btn btn-primary btn-sm" href="#/new">스터디 열기</a></div></div>') + "</section>";
 
-  const appliedBox = '<section class="sec" aria-labelledby="applied-title" style="padding-top:0"><div class="sec-head"><h2 id="applied-title" class="t-title3">신청한 스터디</h2></div>' +
-    (applied.length ? '<ul class="rows card">' + applied.map(({ s, a }) => '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + "</a><small>" + metaLine(s) + "</small></div>" +
-      '<div class="actions"><span class="tag status-' + a.status + '">' + STATUS[a.status] + "</span></div></li>").join("") + "</ul>"
+  // 신청한 스터디: 대기 중이면 여기서 바로 신청을 취소해요. 모집자가 취소한 스터디는 "스터디 취소됨"으로 보여요.
+  const appliedBox = '<section class="sec" aria-labelledby="applied-title" style="padding-top:0"><div class="sec-head"><h2 id="applied-title" class="t-title3" tabindex="-1">신청한 스터디</h2></div>' +
+    (applied.length ? '<ul class="rows card">' + applied.map(({ s, a }) => '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + "</a><small>" + metaLine(s) + (s.canceled ? " · 모집자가 취소했어요" : "") + "</small></div>" +
+      '<div class="actions">' + appTag(s, a) + (a.status === "pending" && !s.canceled ? '<button type="button" class="btn btn-outline btn-sm" data-act="withdraw" data-app="' + esc(a.id) + '" aria-label="' + esc(s.title) + ' 신청 취소하기">신청 취소</button>' : "") + "</div></li>").join("") + "</ul>"
       : '<div class="empty">아직 신청한 스터디가 없어요.<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)"><a class="btn btn-outline btn-sm" href="#/">스터디 둘러보기</a></div></div>') + "</section>";
 
   return head + '<p class="note t-label1">' + esc(m.name) + " · " + R.ROLE_LABEL[m.role] + "</p>" + openedBox + appliedBox;
@@ -458,10 +547,15 @@ document.addEventListener("click", (e) => { if (!mePanel.hidden && !mePanel.cont
 document.addEventListener("change", (e) => {
   if (e.target.dataset && e.target.dataset.d) draft[e.target.dataset.d] = e.target.value;
 });
+let searchTimer = 0;
 document.addEventListener("input", (e) => {
   const d = e.target.dataset || {};
   if (d.d) draft[d.d] = e.target.value;
   if (d.pf === "name") pdraft.name = e.target.value;
+  if (d.search !== undefined) {
+    filter.q = e.target.value;
+    clearTimeout(searchTimer); searchTimer = setTimeout(updateResults, 120); // 한 글자마다 개수를 읽어 주지 않게 잠깐 모아요
+  }
 });
 
 document.addEventListener("click", (e) => {
@@ -487,7 +581,7 @@ document.addEventListener("click", (e) => {
     }
 
     if (b.dataset.toggle) { filter[b.dataset.toggle] = !filter[b.dataset.toggle]; rerender('[data-toggle="' + b.dataset.toggle + '"]'); return; }
-    if (b.dataset.act === "clear-filters") { filter = { openOnly: false, needMine: false }; rerender('[data-toggle="openOnly"]'); toast("필터를 지웠어요."); return; }
+    if (b.dataset.act === "clear-filters") { filter = { q: "", openOnly: false, needMine: false }; rerender("#f-q"); toast("검색어와 필터를 지웠어요."); return; }
 
     if (b.dataset.act === "sync") {
       run(b, "불러오는 중…", async () => {
@@ -511,12 +605,61 @@ document.addEventListener("click", (e) => {
       });
       return;
     }
+    const onMy = () => (location.hash || "#/").split("/")[1] === "my";
     if (b.dataset.act === "close") {
       const s = study(b.dataset.study);
-      if (!s || !confirm("모집을 마감할까요? 마감하면 새 신청을 받을 수 없어요.")) return;
-      run(b, "마감하는 중…", async () => {
-        await api("PATCH", "studies/" + encodeURIComponent(s.id), { closed: true });
-        refresh("#next-title"); toast("모집을 마감했어요. 슬랙 채널을 만들어 시작해요.");
+      if (!s) return;
+      confirmBox({ title: "모집을 마감할까요?", body: "‘" + s.title + "’ 모집을 마감하면 새 신청을 받지 않아요. 마감한 뒤에도 다시 열 수 있어요.", ok: "마감하기" }).then((yes) => {
+        if (!yes) return;
+        run(b, "마감하는 중…", async () => {
+          await api("PATCH", "studies/" + encodeURIComponent(s.id), { closed: true });
+          refresh(onMy() ? "#opened-title" : "#next-title");
+          toast(onMy() ? "‘" + s.title + "’ 모집을 마감했어요." : "모집을 마감했어요. 슬랙 채널을 만들어 시작해요.");
+        });
+      });
+      return;
+    }
+    if (b.dataset.act === "reopen") {
+      const s = study(b.dataset.study);
+      if (!s) return;
+      run(b, "여는 중…", async () => {
+        await api("PATCH", "studies/" + encodeURIComponent(s.id), { closed: false });
+        refresh(onMy() ? "#opened-title" : "#pend-title");
+        toast("‘" + s.title + "’ 모집을 다시 열었어요. 새 신청을 받아요.");
+      });
+      return;
+    }
+    if (b.dataset.act === "cancel-study") {
+      const s = study(b.dataset.study);
+      if (!s) return;
+      const joined = R.members(s, S.apps, S.people).length - 1;
+      const waiting = S.apps.filter((a) => a.studyId === s.id && a.status === "pending").length;
+      const who = [joined ? "함께하기로 한 " + joined + "명" : "", waiting ? "대기 중인 " + waiting + "명" : ""].filter(Boolean).join("과 ");
+      confirmBox({
+        title: "‘" + s.title + "’ 모집을 취소할까요?",
+        body: "목록에서 내리고 신청을 더 받지 않아요. " + (who ? who + "에게는 ‘취소됨’으로 보여요. " : "") + "취소하면 되돌릴 수 없어요.",
+        ok: "모집 취소하기", danger: true,
+      }).then((yes) => {
+        if (!yes) return;
+        run(b, "취소하는 중…", async () => {
+          await api("PATCH", "studies/" + encodeURIComponent(s.id), { canceled: true });
+          refresh("#cancel-title");
+          toast("모집을 취소했어요. 다른 사람 목록에서 빠졌어요.");
+        });
+      });
+      return;
+    }
+    if (b.dataset.act === "withdraw") {
+      const a = S.apps.find((x) => x.id === b.dataset.app);
+      const s = a && study(a.studyId);
+      if (!s) return;
+      confirmBox({ title: "‘" + s.title + "’ 신청을 취소할까요?", body: "모집자 화면에서 내 신청이 빠져요. 나중에 다시 신청할 수 있어요.", ok: "신청 취소하기", danger: true }).then((yes) => {
+        if (!yes) return;
+        run(b, "취소하는 중…", async () => {
+          await api("PATCH", "apps/" + encodeURIComponent(a.id), { status: "withdrawn" });
+          refresh(onMy() ? "#applied-title" : "#apply-title");
+          toast("신청을 취소했어요. 마음이 바뀌면 다시 신청할 수 있어요.");
+        });
       });
       return;
     }

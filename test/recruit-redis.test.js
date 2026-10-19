@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { redisStore } from "../api/_lib/store.js";
-import { createStudy, saveMe, applyStudy, decideApp, getState } from "../api/_lib/recruit.js";
+import { createStudy, saveMe, applyStudy, decideApp, withdrawApp, updateStudy, getState } from "../api/_lib/recruit.js";
 
 const on = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
 
@@ -22,6 +22,27 @@ test("Redis에 저장한 스터디·신청·수락을 다시 읽어요", { skip:
     assert.deepEqual(st.people.map((p) => p.id), ["me-g1", "me-g2"]);
     assert.equal(st.studies[0].title, "Redis 확인 스터디");
     assert.deepEqual(st.apps.map((a) => [a.personId, a.status]), [["me-g2", "accepted"]]);
+  } finally {
+    await store.dropAll();
+  }
+});
+
+test("Redis에 저장한 신청 거두기·다시 열기·모집 취소를 다시 읽어요", { skip: !on && "Redis 환경변수가 없어서 건너뛰어요" }, async () => {
+  const store = redisStore({ prefix: "recruit:test:" + randomUUID() + ":" });
+  try {
+    const A = { id: "me-g1", sub: "1" }, B = { id: "me-g2", sub: "2" };
+    await saveMe(store, A, { name: "모집자A", role: "dev" });
+    await saveMe(store, B, { name: "신청자B", role: "design" });
+    const { study } = await createStudy(store, A, { title: "Redis 취소 확인", days: ["수"], mode: "오프라인", capacity: 3, goal: "취소하고 다시 읽기" });
+    const { app } = await applyStudy(store, B, { studyId: study.id });
+    await withdrawApp(store, B, app.id);
+    await updateStudy(store, A, study.id, { closed: true });
+    await updateStudy(store, A, study.id, { closed: false });
+    await updateStudy(store, A, study.id, { canceled: true });
+    const st = await getState(store);
+    assert.deepEqual(st.apps.map((a) => a.status), ["withdrawn"]);
+    assert.equal(st.studies[0].closed, false);
+    assert.equal(st.studies[0].canceled, true);
   } finally {
     await store.dropAll();
   }

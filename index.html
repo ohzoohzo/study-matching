@@ -30,6 +30,8 @@
   .filters .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-8); }
   .filters .row > .label { min-width: 64px; color: var(--fg-3); font-weight: 600; }
   .chip .mi { width: 16px; height: 16px; }
+  .search { flex: 1 1 280px; max-width: 440px; }
+  .search input::-webkit-search-cancel-button { cursor: pointer; }
   .chip[disabled] { opacity: .45; cursor: default; }
   .count { color: var(--fg-3); margin: 0 0 var(--spacing-12); }
   .count-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-8); margin: 0 0 var(--spacing-12); }
@@ -57,7 +59,7 @@
   .status-open { background: var(--semantic-surface-positive-primary); color: var(--semantic-foreground-positive-primary); font-weight: 600; }
   .status-pending { background: var(--semantic-surface-cautionary-primary); color: var(--semantic-foreground-cautionary-primary); }
   .status-accepted { background: var(--semantic-surface-positive-primary); color: var(--semantic-foreground-positive-primary); }
-  .status-rejected { background: var(--semantic-surface-neutral-secondary); color: var(--fg-3); }
+  .status-rejected, .status-withdrawn { background: var(--semantic-surface-neutral-secondary); color: var(--fg-3); }
 
   /* 폼 */
   .form { display: grid; gap: var(--spacing-24); max-width: 640px; }
@@ -78,6 +80,7 @@
   .rows { margin: 0; padding: 0; list-style: none; }
   .rows li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-8); padding: var(--spacing-12) 0; border-bottom: 1px solid var(--line-soft); }
   .rows li:last-child { border-bottom: 0; }
+  .rows.card { padding: 0 var(--spacing-20); } /* 내 스터디 카드 목록: .rows의 padding 0이 카드 좌우 여백을 지우지 않게 해요 */
   .rows .who { display: flex; flex-direction: column; min-width: 0; }
   .rows .who small { color: var(--fg-3); }
   .rows .who a { text-decoration: none; font-weight: 600; }
@@ -88,6 +91,24 @@
   .next { border-color: var(--brand); background: var(--brand-subtle); }
   .next ol { margin: 0; padding-left: var(--spacing-20); display: grid; gap: var(--spacing-8); color: var(--fg); }
   .next a { color: var(--brand-fg); font-weight: 600; }
+  /* 되돌릴 수 없는 동작: 모집 취소·신청 취소 */
+  .btn-danger { border: 1px solid var(--semantic-line-negative-strong); background: var(--semantic-surface-negative-primary); color: var(--semantic-foreground-negative-strong); }
+  .btn-danger:hover { background: var(--semantic-surface-negative-strong); }
+  .danger-zone { display: grid; gap: var(--spacing-12); margin-top: var(--spacing-20); }
+  .danger-zone p { margin: var(--spacing-4) 0 0; }
+  .danger-zone .btn { justify-self: start; }
+  /* 취소된 스터디 안내 */
+  .notice { display: flex; align-items: flex-start; gap: var(--spacing-10); margin-top: var(--spacing-16); padding: var(--spacing-16); border: 1px solid var(--line); border-radius: var(--radius-12); background: var(--bg-2); color: var(--fg-2); }
+  .notice .mi { margin-top: 2px; color: var(--fg-3); }
+  .notice b { color: var(--fg); }
+  .notice p { margin: var(--spacing-4) 0 var(--spacing-12); }
+  /* 확인 창 */
+  .dlg { width: min(440px, calc(100vw - 2 * var(--spacing-16))); max-width: none; padding: 0; border: 0; border-radius: var(--radius-20); background: var(--card); color: var(--fg); box-shadow: var(--semantic-elevation-shadow-normal-large); }
+  .dlg::backdrop { background: var(--semantic-effect-dimmer-primary); }
+  .dlg .in { display: grid; gap: var(--spacing-8); padding: var(--spacing-24); }
+  .dlg h2 { margin: 0; }
+  .dlg p { margin: 0; color: var(--fg-2); }
+  .dlg .actions { justify-content: flex-end; margin-top: var(--spacing-16); }
   .toast { position: fixed; left: 50%; bottom: var(--spacing-24); translate: -50% 0; z-index: 20; max-width: calc(100vw - 2 * var(--spacing-16)); padding: var(--spacing-12) var(--spacing-16); border-radius: var(--radius-12); background: var(--semantic-surface-neutral-inverse); color: var(--semantic-foreground-neutral-inverse); box-shadow: var(--semantic-elevation-shadow-normal-large); }
   .foot a { color: var(--fg-2); }
   [tabindex="-1"]:focus { outline: none; }
@@ -141,6 +162,14 @@
 </footer>
 
 <div id="toast" class="toast t-label1" role="status" aria-live="polite" hidden></div>
+
+<dialog id="confirmDlg" class="dlg" aria-labelledby="dlgTitle" aria-describedby="dlgBody">
+  <div class="in">
+    <h2 id="dlgTitle" class="t-headline1"></h2>
+    <p id="dlgBody" class="t-body2"></p>
+    <div class="actions"><button type="button" class="btn btn-outline btn-sm" data-dlg="back">돌아가기</button><button type="button" class="btn btn-sm btn-primary" data-dlg="ok">확인</button></div>
+  </div>
+</dialog>
 
 <script type="module" src="/recruit/recruit.js"></script>
 </body>

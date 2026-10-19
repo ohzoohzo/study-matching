@@ -62,13 +62,18 @@ export async function createStudy(store, user, body) {
   return { study, state: { ...state, studies: state.studies.concat(study) } };
 }
 
-export async function closeStudy(store, user, id, body) {
-  if (body.closed !== true) throw new HttpError(400, "모집 마감만 할 수 있어요.");
+// 모집자만: { closed: true } 마감 · { closed: false } 다시 열기 · { canceled: true } 모집 취소(되돌릴 수 없어요)
+export async function updateStudy(store, user, id, body) {
+  const change = body.canceled === true ? "cancel" : body.closed === true ? "close" : body.closed === false ? "reopen" : "";
+  if (!change) throw new HttpError(400, "모집 마감·다시 열기·모집 취소만 할 수 있어요.");
   return store.withLock("study:" + id, async () => {
     const state = await store.load();
     const s = needStudy(state, id);
     needLeader(s, user);
-    const study = R.closeStudy(s, user.id);
+    const study = rule(() =>
+      change === "cancel" ? R.cancelStudy(s, user.id, kstMinute())
+        : change === "close" ? R.closeStudy(s, user.id)
+          : R.reopenStudy(s, state.apps, state.people, user.id));
     await store.put("studies", study);
     return { study, state: { ...state, studies: replace(state.studies, study) } };
   });
@@ -90,18 +95,41 @@ export async function applyStudy(store, user, body) {
   });
 }
 
-export async function decideApp(store, user, id, body) {
-  const status = body.status;
-  if (status !== "accepted" && status !== "rejected") throw new HttpError(400, "수락이나 거절만 할 수 있어요.");
-  const found = await store.get("apps", id); // 어느 스터디를 잠글지 알려고 먼저 봐요
+// 신청 하나 바꾸기: { status: "accepted" | "rejected" } 모집자의 수락·거절 · { status: "withdrawn" } 신청자의 거두기
+export function updateApp(store, user, id, body) {
+  if (body.status === "withdrawn") return withdrawApp(store, user, id);
+  return decideApp(store, user, id, body);
+}
+
+// 어느 스터디를 잠글지 알려고 신청을 먼저 봐요. 잠근 뒤에 다시 읽어서 판단해요.
+async function lockApp(store, id, fn) {
+  const found = await store.get("apps", id);
   if (!found) throw new HttpError(404, "찾는 신청이 없어요.");
   return store.withLock("study:" + found.studyId, async () => {
     const state = await store.load();
-    const s = needStudy(state, found.studyId);
+    return fn(state, needStudy(state, found.studyId));
+  });
+}
+async function saveApp(store, state, apps, id) {
+  const app = apps.find((x) => x.id === id);
+  await store.put("apps", app);
+  return { app, state: { ...state, apps } };
+}
+
+export async function decideApp(store, user, id, body) {
+  const status = body.status;
+  if (status !== "accepted" && status !== "rejected") throw new HttpError(400, "수락이나 거절만 할 수 있어요.");
+  return lockApp(store, id, (state, s) => {
     needLeader(s, user);
-    const apps = rule(() => R.decide(s, state.apps, state.people, id, status));
-    const app = apps.find((x) => x.id === id);
-    await store.put("apps", app);
-    return { app, state: { ...state, apps } };
+    return saveApp(store, state, rule(() => R.decide(s, state.apps, state.people, id, status)), id);
+  });
+}
+
+// 신청한 본인만 거둘 수 있어요 (모집자도 남의 신청은 못 거둬요)
+export async function withdrawApp(store, user, id) {
+  return lockApp(store, id, (state, s) => {
+    const a = state.apps.find((x) => x.id === id);
+    if (a.personId !== user.id) throw new HttpError(403, "내 신청만 취소할 수 있어요.");
+    return saveApp(store, state, rule(() => R.withdraw(s, state.apps, user.id, id)), id);
   });
 }
