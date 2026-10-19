@@ -13,6 +13,7 @@ import * as studyApi from "../api/recruit/studies/[id].js";
 import * as appsApi from "../api/recruit/apps.js";
 import * as appApi from "../api/recruit/apps/[id].js";
 import * as pushApi from "../api/recruit/push.js";
+import * as notesApi from "../api/recruit/notes.js";
 
 // 테스트용 구글 계정: 토큰 문자열 → 구글이 확인해 준 정보
 const ACCOUNTS = {
@@ -580,4 +581,54 @@ test("사라진 구독(404·410)은 지우고, 알림이 실패해도 신청은 
   const r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } });
   assert.equal(r.status, 201);
   assert.deepEqual((await call.store.getSubs("me-g111")).map((x) => x.endpoint), [sub(2).endpoint]); // 410만 지우고, 잠깐의 네트워크 오류는 남겨요
+});
+
+// ---------- 사이트 알림함 ----------
+test("알림함: 로그인한 나만 내 알림을 보고, 처음에는 비어 있어요", async () => {
+  const call = setup();
+  assert.equal((await call(notesApi, "GET")).status, 401);
+  assert.equal((await call(notesApi, "PATCH", { body: { all: true } })).status, 401);
+  const r = await call(notesApi, "GET", { token: "tokA" });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { notes: [], unread: 0 });
+});
+
+test("알림함: 신청하면 모집자 알림함에 쌓이고, 일한 사람에게는 안 쌓여요 (푸시를 안 켜도 쌓여요)", async () => {
+  const call = setup({ noPush: true });
+  await withPeople(call);
+  const s = (await call(studiesApi, "POST", { token: "tokA", body: study })).body.study;
+  const app = (await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } })).body.app;
+  let a = (await call(notesApi, "GET", { token: "tokA" })).body;
+  assert.equal(a.unread, 1);
+  assert.equal(a.notes[0].title, "새 신청이 왔어요");
+  assert.equal(a.notes[0].studyId, s.id);
+  assert.equal(a.notes[0].url, "/#/s/" + s.id);
+  assert.equal(a.notes[0].read, false);
+  assert.match(a.notes[0].at, /^\d{4}-\d\d-\d\dT\d\d:\d\d$/);
+  assert.deepEqual((await call(notesApi, "GET", { token: "tokB" })).body, { notes: [], unread: 0 });
+  await call(appApi, "PATCH", { token: "tokA", query: { id: app.id }, body: { status: "accepted" } });
+  await call(appApi, "PATCH", { token: "tokA", query: { id: app.id }, body: { status: "removed" } });
+  const b = (await call(notesApi, "GET", { token: "tokB" })).body;
+  assert.deepEqual(b.notes.map((n) => n.kind), ["removed", "accepted"]); // 새것부터
+  assert.equal(b.unread, 2);
+  const st = (await call(stateApi, "GET")).body; // 공개 목록에는 알림함이 없어요
+  assert.ok(!JSON.stringify(st).includes("새 신청이 왔어요"));
+});
+
+test("알림함: 고른 알림이나 모두를 읽음으로 바꿔요 (내 알림만 바뀌어요)", async () => {
+  const call = setup();
+  const { s } = await studyWithApps(call); // B·C가 신청해서 A에게 알림 2개
+  let a = (await call(notesApi, "GET", { token: "tokA" })).body;
+  assert.equal(a.unread, 2);
+  let r = await call(notesApi, "PATCH", { token: "tokA", body: { ids: [a.notes[0].id] } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.unread, 1);
+  r = await call(notesApi, "PATCH", { token: "tokB", body: { all: true } }); // B가 바꿔도 A 알림은 그대로
+  assert.equal((await call(notesApi, "GET", { token: "tokA" })).body.unread, 1);
+  r = await call(notesApi, "PATCH", { token: "tokA", body: { all: true } });
+  assert.equal(r.body.unread, 0);
+  for (const body of [{}, { ids: "n-1" }, { ids: [1, 2] }, { all: "yes" }]) {
+    assert.equal((await call(notesApi, "PATCH", { token: "tokA", body })).status, 400, JSON.stringify(body));
+  }
+  assert.ok(s);
 });

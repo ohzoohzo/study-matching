@@ -246,12 +246,12 @@ export function filterStudies(studies, apps, people, { q = "", openOnly = false,
     (!needRole || roleMix(s, apps, people).missing.includes(needRole)));
 }
 
-// 푸시 알림 문구: 어떤 일이 생겼을 때 누구에게 무엇을 보낼지 정해요. 서버는 이 목록대로 보내기만 해요.
+// 알림 문구: 어떤 일이 생겼을 때 누구에게 무엇을 보낼지 정해요. 서버는 이 목록대로 사이트 알림함에 저장하고 푸시로 보내요.
 // 일을 한 사람 자신에게는 보내지 않아요. 알림을 누르면 그 스터디 상세(url)로 가요.
 export function pushMessages(kind, { study, app = null, apps = [], people = [] }) {
   const name = (id) => ((people.find((p) => p.id === id) || {}).name || "누군가") + "님";
   const t = "‘" + study.title + "’";
-  const to = (personId, title, body) => ({ personId, title, body, url: "/#/s/" + encodeURIComponent(study.id) });
+  const to = (personId, title, body) => ({ personId, kind, studyId: study.id, title, body, url: "/#/s/" + encodeURIComponent(study.id) });
   switch (kind) {
     case "applied": return [to(study.leaderId, "새 신청이 왔어요", name(app.personId) + "이 " + t + "에 신청했어요.")];
     case "withdrawn": return [to(study.leaderId, "신청이 취소됐어요", name(app.personId) + "이 " + t + " 신청을 취소했어요.")];
@@ -266,3 +266,17 @@ export function pushMessages(kind, { study, app = null, apps = [], people = [] }
     default: return [];
   }
 }
+
+// 사이트 알림함: 사람마다 최근 알림 30개를 새것부터 둬요. 푸시와 같은 알림이에요.
+export const MAX_NOTES = 30;
+export function addNote(list, m, id, at) {
+  const note = { id, kind: m.kind, studyId: m.studyId, title: m.title, body: m.body, url: m.url, at, read: false };
+  return [note].concat(list || []).slice(0, MAX_NOTES);
+}
+// 읽음으로 바꾸기: ids 목록이나 "all"
+export function markRead(list, ids) {
+  return (list || []).map((n) => (ids === "all" || (Array.isArray(ids) && ids.includes(n.id)) ? { ...n, read: true } : n));
+}
+export const unreadCount = (list) => (list || []).filter((n) => !n.read).length;
+// 이 스터디 상세를 열면 읽음으로 바꿀 알림
+export const unreadFor = (list, studyId) => (list || []).filter((n) => !n.read && n.studyId === studyId).map((n) => n.id);

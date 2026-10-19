@@ -27,7 +27,7 @@ function needLeader(study, user) {
   if (!c.ok) throw new HttpError(403, c.reason);
 }
 // 한국 시간 "2026-10-19T17:05" (목록 정렬에 써요)
-const kstMinute = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 16);
+export const kstMinute = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 16);
 const replace = (list, item) => list.map((x) => (x.id === item.id ? item : x));
 // 쓰기가 끝나고 스터디 잠금이 풀린 뒤에 알림을 보내요 (누구에게 무엇을 보낼지는 recruit-logic의 pushMessages가 정해요)
 const noop = async () => {};

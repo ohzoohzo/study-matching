@@ -62,3 +62,16 @@ test("Redis에 브라우저 푸시 구독을 저장·삭제하고, 공개 목록
     await store.dropAll();
   }
 });
+
+test("Redis에 사이트 알림함을 저장하고, 공개 목록(load)에는 넣지 않아요", { skip: !on && "Redis 환경변수가 없어서 건너뛰어요" }, async () => {
+  const store = redisStore({ prefix: "recruit:test:" + randomUUID() + ":" });
+  try {
+    const note = { id: "n-redis", kind: "applied", studyId: "s-1", title: "새 신청이 왔어요", body: "redis-note-test", url: "/#/s/s-1", at: "2026-10-19T18:00", read: false };
+    assert.deepEqual(await store.getNotes("me-g1"), []);
+    await store.setNotes("me-g1", [note]);
+    assert.deepEqual(await store.getNotes("me-g1"), [note]);
+    assert.ok(!JSON.stringify(await store.load()).includes("redis-note-test"));
+  } finally {
+    await store.dropAll();
+  }
+});

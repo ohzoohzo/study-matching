@@ -12,7 +12,24 @@
 <style>
   /* 메뉴 오른쪽: 나 */
   .nav { position: sticky; }
-  .me { position: relative; display: flex; align-items: center; margin-left: auto; }
+  .me { position: relative; display: flex; align-items: center; gap: var(--spacing-8); margin-left: auto; }
+  /* 알림함: 종 아이콘·안 읽은 개수 배지·알림 목록 */
+  .note-btn { position: relative; padding: 0 var(--spacing-10); }
+  .note-btn[hidden] { display: none; }
+  .note-badge { position: absolute; top: calc(-1 * var(--spacing-6)); right: calc(-1 * var(--spacing-6)); min-width: 18px; height: 18px; padding: 0 var(--spacing-4); border-radius: var(--radius-full); background: var(--brand); color: var(--semantic-static-white); font-size: var(--typography-caption2-fontSize); line-height: 18px; font-weight: 700; text-align: center; }
+  .note-badge[hidden] { display: none; }
+  .note-panel { max-height: min(70vh, 560px); overflow: auto; gap: var(--spacing-12); } /* 폭과 위치는 .me-panel과 같아요 */
+  .note-head { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-8); }
+  .note-head h2 { margin: 0; }
+  .nav .note-panel .note-list { display: grid; gap: var(--spacing-4); width: 100%; margin: 0; padding: 0; list-style: none; overflow: visible; order: 0; }
+  /* 알림 창은 메뉴(.nav) 안에 있어서, 메뉴 링크 스타일(.nav li a: 한 줄·높이 60px)을 덮어써요 */
+  .nav .note-panel a.inbox-item { display: grid; gap: var(--spacing-2); height: auto; padding: var(--spacing-10) var(--spacing-12); border-radius: var(--radius-12); color: var(--fg-2); font-weight: 400; white-space: normal; box-shadow: none; text-decoration: none; }
+  .nav .note-panel a.inbox-item:hover { background: var(--semantic-surface-neutral-tertiary); }
+  .nav .note-panel a.inbox-item.unread { background: var(--brand-subtle); color: var(--fg); }
+  .inbox-item b { color: var(--fg); }
+  .inbox-item small { color: var(--fg-3); }
+  .inbox-item .new { color: var(--brand-fg); font-weight: 600; }
+  .note-empty { padding: var(--spacing-24) var(--spacing-16); }
   .me-btn { max-width: 220px; }
   .me-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .me-panel { position: absolute; right: var(--gutter); top: calc(100% + var(--spacing-8)); z-index: 15; width: min(380px, calc(100vw - 2 * var(--gutter))); display: grid; gap: var(--spacing-16); box-shadow: var(--semantic-elevation-shadow-normal-large); }
@@ -150,6 +167,10 @@
       <li><a href="#/my" data-route="my">내 스터디</a></li>
     </ul>
     <div class="me">
+      <button type="button" id="noteBtn" class="btn btn-outline btn-sm note-btn" aria-expanded="false" aria-controls="notePanel" aria-label="알림" hidden>
+        <svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+        <span id="noteBadge" class="note-badge" aria-hidden="true" hidden></span>
+      </button>
       <button type="button" id="meBtn" class="btn btn-outline btn-sm me-btn" aria-expanded="false" aria-controls="mePanel">
         <svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
         <span id="meLabel">로그인</span>
@@ -157,6 +178,7 @@
     </div>
   </div>
   <div id="mePanel" class="card me-panel" role="region" aria-label="나" hidden></div>
+  <div id="notePanel" class="card me-panel note-panel" role="region" aria-label="알림" hidden></div>
 </nav>
 
 <main class="wrap" id="app" tabindex="-1" aria-busy="true">

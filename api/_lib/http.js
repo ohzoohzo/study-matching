@@ -3,7 +3,8 @@
 import { HttpError } from "./errors.js";
 import { redisStore } from "./store.js";
 import { verifyGoogleToken } from "./auth.js";
-import { webPushFromEnv, sendPush } from "./push.js";
+import { webPushFromEnv } from "./push.js";
+import { deliver } from "./notes.js";
 
 export function send(res, status, body) {
   res.statusCode = status;
@@ -50,7 +51,7 @@ export function handler(methods, deps = defaults) {
     try {
       const st = deps.store, pu = deps.push || null;
       const ctx = { store: st, query: req.query || {}, body: req.method === "GET" ? {} : readBody(req), user: () => readUser(req, deps.verify),
-        push: pu, notify: (messages) => sendPush(st, pu, messages) };
+        push: pu, notify: (messages) => deliver(st, pu, messages) }; // 알림함에 저장하고 푸시도 보내요
       const out = await fn(ctx);
       return send(res, out.status || 200, out.body);
     } catch (err) {
