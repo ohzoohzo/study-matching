@@ -461,3 +461,34 @@ test("프로필·스터디 검사에 해시태그가 들어가요 (안 달아도
   assert.deepEqual(R.validateStudy({ ...ok, tags: ["7기"] }), {});
   assert.equal(R.validateStudy({ ...ok, tags: "7기" }).tags, "해시태그를 다시 확인해 주세요.");
 });
+
+test("해시태그 검색: #이 붙은 낱말은 스터디 태그에서 일부만 맞아도 찾아요", () => {
+  const a = { ...S("s1"), id: "t1", tags: ["프리온보딩7기", "React"] };
+  const b = { ...S("s2"), id: "t2", tags: ["프리온보딩17기"] };
+  const c = { ...S("s3"), id: "t3" }; // 태그가 없는 예전 스터디
+  const hit = (q) => [a, b, c].filter((s) => R.matchesSearch(s, seed.people, q)).map((s) => s.id);
+  assert.deepEqual(hit("#프리온보딩7기"), ["t1"]);
+  assert.deepEqual(hit("#7기"), ["t1", "t2"]); // 일부 일치라 17기도 나와요
+  assert.deepEqual(hit("＃react"), ["t1"]);
+  assert.deepEqual(hit("#"), ["t1", "t2", "t3"]); // #만 있으면 무시해요
+  assert.deepEqual(hit("#7기 pandas"), ["t1"]); // 낱말은 모두 맞아야 해요
+  assert.deepEqual(hit("#pandas"), []); // #이면 이름·목표는 보지 않아요
+  assert.deepEqual(hit("온보딩"), ["t1", "t2"]); // #이 없으면 태그도 봐요
+});
+
+test("검색어에 태그 넣고 빼기: 칩과 카드 태그가 써요", () => {
+  assert.equal(R.toggleTagInQuery("", "프리온보딩7기"), "#프리온보딩7기");
+  assert.equal(R.toggleTagInQuery("pandas", "#React"), "pandas #React");
+  assert.equal(R.toggleTagInQuery("pandas  #react  csv", "React"), "pandas csv");
+  assert.equal(R.tagInQuery("pandas #REACT", "react"), true);
+  assert.equal(R.tagInQuery("pandas #React", "Re"), false); // 넣고 빼기는 태그 전체가 같을 때만이에요
+  assert.equal(R.tagInQuery("react", "react"), false); // #이 없는 낱말은 태그가 아니에요
+});
+
+test("많이 쓰는 태그: 사람과 취소되지 않은 스터디에서 세고, 많은 순·가나다순이에요", () => {
+  const people = [{ id: "p1", tags: ["React", "7기"] }, { id: "p2", tags: ["react"] }, { id: "p3" }];
+  const studies = [{ id: "s1", tags: ["7기", "주말"] }, { id: "s2", canceled: true, tags: ["취소된태그"] }, { id: "s3" }];
+  assert.deepEqual(R.tagSuggestions(people, studies), ["7기", "React", "주말"]);
+  assert.deepEqual(R.tagSuggestions(people, studies, { exclude: ["REACT"] }), ["7기", "주말"]);
+  assert.deepEqual(R.tagSuggestions(people, studies, { limit: 1 }), ["7기"]);
+});

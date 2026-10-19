@@ -260,14 +260,46 @@ export function sortStudies(studies, apps, people, today = kstToday()) {
   return studies.slice().sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt));
 }
 
-// 검색: 스터디 이름·목표·모집자 이름에 검색어의 낱말이 모두 들어 있으면 찾아요 (영문 대소문자는 가리지 않아요)
+// 검색: 스터디 이름·목표·모집자 이름·해시태그에 검색어의 낱말이 모두 들어 있으면 찾아요 (영문 대소문자는 가리지 않아요)
+// #으로 시작하는 낱말은 스터디 해시태그에서만 찾고, 태그 일부만 맞아도 돼요("#7기" → "#프리온보딩7기")
 const fold = (v) => String(v == null ? "" : v).normalize("NFC").toLowerCase();
+const isTagWord = (w) => /^[#＃]/.test(w);
 export function matchesSearch(study, people, q) {
   const words = fold(q).split(/\s+/).filter(Boolean);
   if (!words.length) return true;
   const leader = people.find((p) => p.id === study.leaderId);
-  const text = fold([study.title, study.goal, leader ? leader.name : ""].join(" "));
-  return words.every((w) => text.includes(w));
+  const tags = tagsOf(study);
+  const text = fold([study.title, study.goal, leader ? leader.name : ""].concat(tags).join(" "));
+  return words.every((w) => {
+    if (!isTagWord(w)) return text.includes(w);
+    const key = tagKey(w);
+    return !key || tags.some((t) => tagKey(t).includes(key));
+  });
+}
+
+// 검색어 안에 이 태그(#태그 낱말)가 통째로 들어 있는지: 칩·카드 태그의 눌림 상태에 써요
+export function tagInQuery(q, tag) {
+  const key = tagKey(tag);
+  return String(q || "").split(/\s+/).some((w) => isTagWord(w) && tagKey(w) === key);
+}
+// 칩·카드 태그를 누르면 검색어에 #태그를 넣거나(없을 때) 빼요(있을 때)
+export function toggleTagInQuery(q, tag) {
+  const words = String(q || "").split(/\s+/).filter(Boolean);
+  if (tagInQuery(q, tag)) return words.filter((w) => !(isTagWord(w) && tagKey(w) === tagKey(tag))).join(" ");
+  return words.concat("#" + normalizeTag(tag)).join(" ");
+}
+
+// 많이 쓰는 태그: 사람과 취소되지 않은 스터디가 단 태그를 세서 많은 순(같으면 가나다순)으로 줘요. 입력칸 아래 추천에 써요
+export function tagSuggestions(people, studies, { exclude = [], limit = 8 } = {}) {
+  const skip = new Set(exclude.map(tagKey));
+  const count = new Map(); // tagKey → { tag: 처음 본 모양, n }
+  people.concat(studies.filter((s) => !s.canceled)).forEach((x) => cleanTags(tagsOf(x)).forEach((t) => {
+    const k = tagKey(t);
+    if (skip.has(k)) return;
+    const c = count.get(k) || { tag: t, n: 0 };
+    c.n += 1; count.set(k, c);
+  }));
+  return [...count.values()].sort((a, b) => b.n - a.n || a.tag.localeCompare(b.tag, "ko")).slice(0, limit).map((c) => c.tag);
 }
 
 // 목록에 보여 줄 스터디: 취소한 스터디는 빼고, 검색어·"모집 중만"·"이 직군이 비어 있는 스터디"를 함께 걸러 정렬해요
