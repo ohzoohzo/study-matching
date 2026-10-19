@@ -60,13 +60,15 @@ npm test             # 기획안·모집 규칙과 서버 함수 검사 (Node 20
 
 | 화면 | 주소 |
 |---|---|
-| 스터디 목록 (모집 중만, 내 직군이 비어 있는 스터디) | `/#/` |
+| 스터디 목록 (검색: 스터디 이름·목표·모집자 이름, 모집 중만, 내 직군이 비어 있는 스터디) | `/#/` |
 | 스터디 열기 (이름·요일·목표, 정원 2~6명, ZEP/오프라인) | `/#/new` |
-| 스터디 상세 (신청, 모집자의 수락·거절, 모집 마감, 결성 다음 할 일) | `/#/s/s-1` |
-| 내 스터디 (내가 연 것, 신청한 것) | `/#/my` |
+| 스터디 상세 (신청·신청 취소, 모집자의 수락·거절·모집 마감·다시 열기·모집 취소, 결성 다음 할 일) | `/#/s/s-1` |
+| 내 스터디 (내가 연 것: 바로 마감·다시 열기 / 신청한 것: 대기 중이면 신청 취소, 모집자가 취소한 스터디는 "스터디 취소됨") | `/#/my` |
 
 - 스터디를 열거나 신청하려면 **구글 로그인**이 필요해요. 처음 로그인할 때만 보여 줄 이름과 직군을 정하고, 다음에 같은 계정으로 들어오면 프로필이 이어져요. 오른쪽 위 버튼에서 이름·직군을 고치거나 로그아웃해요.
 - 주 횟수는 따로 받지 않고 고른 요일 수로 정해요(화·목 → 주 2회).
+- 모집 취소는 스터디를 지우지 않고 `canceled`로 남겨요. 목록·검색에서 빠지고, 함께하기로 했거나 대기 중이던 사람은 "내 스터디"와 상세 화면에서 "모집자가 취소했어요"를 봐요. 되돌릴 수 없어서 확인 창을 먼저 띄워요.
+- 신청 취소는 대기 중인 신청만 할 수 있고, 신청을 `withdrawn`으로 남겨요. 모집자 화면에서 빠지고, 나중에 다시 신청할 수 있어요.
 - 권장 주제(강사님 주제1~7) 고르기는 뺐어요. 무엇을 공부하는지는 스터디 이름에 적어요.
 - 구글 로그인은 클라이언트 ID(공개값)만 써요. 시크릿은 쓰지 않아요. 서버 함수가 쓰기 요청마다 구글 ID 토큰을 `google-auth-library`의 `verifyIdToken`으로 검증하고, 확인된 계정 번호로 `"me-g"+sub`를 내 id로 써요.
 - 구글 앱은 "프로덕션"으로 게시해서 구글 계정이 있으면 누구나 로그인돼요(기본 범위 openid·email·profile만 써서 구글 인증 심사는 필요 없어요). 개인정보처리방침: `/privacy.html`
@@ -80,12 +82,13 @@ npm test             # 기획안·모집 규칙과 서버 함수 검사 (Node 20
 | `GET /api/recruit/state` | 스터디·신청·사람(이름·직군) 전체 | 누구나 |
 | `GET /api/recruit/me` · `PUT /api/recruit/me` | 내 프로필 보기 · 이름과 직군 저장 | 로그인한 나 |
 | `POST /api/recruit/studies` | 스터디 열기 | 로그인 + 프로필 |
-| `PATCH /api/recruit/studies/:id` `{ closed: true }` | 모집 마감 | 모집자만 |
+| `PATCH /api/recruit/studies/:id` `{ closed: true }` · `{ closed: false }` · `{ canceled: true }` | 모집 마감 · 다시 열기 · 모집 취소(되돌릴 수 없어요) | 모집자만 |
 | `POST /api/recruit/apps` `{ studyId, message }` | 신청 | 로그인 + 프로필 |
-| `PATCH /api/recruit/apps/:id` `{ status }` | 수락·거절 | 모집자만 |
+| `PATCH /api/recruit/apps/:id` `{ status: "accepted" \| "rejected" }` | 수락·거절 | 모집자만 |
+| `PATCH /api/recruit/apps/:id` `{ status: "withdrawn" }` | 신청 취소 (대기 중일 때만) | 신청한 본인만 |
 
 - 규칙은 화면과 같은 `recruit/recruit-logic.js`를 서버에서도 그대로 써요. 모집자 확인도 `canManage`로 서버에서 막아요.
-- 같은 스터디의 신청·수락·마감은 Redis 잠금으로 한 번에 하나씩 처리해서 동시에 눌러도 정원을 넘지 않아요.
+- 같은 스터디의 신청·수락·마감·다시 열기·모집 취소·신청 취소는 Redis 잠금으로 한 번에 하나씩 처리해서, 동시에 눌러도 정원을 넘지 않고 수락과 신청 취소가 겹치지 않아요.
 - Redis 키는 `recruit:prod:…`(배포), `recruit:development:…`(vercel dev)처럼 환경마다 나뉘어 있어서 로컬 확인이 실제 데이터와 섞이지 않아요.
 
 ```bash
@@ -97,6 +100,10 @@ RECRUIT_DEV_AUTH=1 vercel dev                            # 로컬 확인: "dev:<
 
 ## 사용한 스킬과 프롬프트
 
+- 검색·모집 취소·신청 취소·다시 열기·내 스터디에서 마감 (feat/recruit-basics)
+  - 스킬: `superpowers:brainstorming`(사용자가 질문을 건너뛰고 범위를 맡김), `superpowers:using-git-worktrees`, `superpowers:test-driven-development`(규칙·서버 테스트를 먼저 쓰고 실패를 본 뒤 구현), `superpowers:verification-before-completion`, `ui-ux-pro-max`
+  - `search.py "search input filter no results" --domain ux`, `"confirmation dialog destructive action"`, `"modal dialog focus keyboard"`, `"empty state clear filters"`, `"live region announce results count"`
+  - 프롬프트: "스터디 모집에 기본 기능을 더해 주세요. (a) 검색: 스터디 이름·목표·모집자 이름 글자로 찾기, 기존 필터와 함께, 결과가 없으면 안내와 필터 지우기 (b) 모집 취소 (c) 신청 취소 (d) 마감한 스터디 다시 열기 (e) 내 스터디에서 바로 마감. 규칙은 recruit-logic.js에 테스트 먼저, 서버는 canManage와 store.withLock으로 막고, 되돌릴 수 없는 동작은 확인 창을 먼저 띄워요." → "질문은 건너뛰고, 범위와 취소 방식은 네가 정해서 바로 시작해 줘."
 - `ui-ux-pro-max` (`.claude/skills/ui-ux-pro-max`, MIT): 빈 상태·로딩·칩·터치 크기 점검
   - `search.py "study group matching community students" --design-system`
   - `search.py "touch target size chip" --domain ux`, `"filter chips toggle state"`, `"loading skeleton empty state"`
