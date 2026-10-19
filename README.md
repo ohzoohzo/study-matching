@@ -59,16 +59,39 @@ npm test             # 기획안 규칙 검사 (Node 20 이상)
 - 스터디를 열거나 신청하려면 **구글 로그인**이 필요해요. 처음 로그인할 때만 보여 줄 이름과 직군을 정하고, 다음에 같은 계정으로 들어오면 프로필이 이어져요. 오른쪽 위 버튼에서 이름·직군을 고치거나 로그아웃해요.
 - 주 횟수는 따로 받지 않고 고른 요일 수로 정해요(화·목 → 주 2회).
 - 권장 주제(강사님 주제1~7)는 고르지 않아도 돼요. 다른 주제면 스터디 이름에 적어요.
-- 구글 로그인은 클라이언트 ID(공개값)만 써요. 시크릿은 쓰지 않아요. 지금은 데이터가 이 브라우저(localStorage)에만 있어서 토큰은 이름·계정 구분에만 써요.
+- 구글 로그인은 클라이언트 ID(공개값)만 써요. 시크릿은 쓰지 않아요. 서버 함수가 쓰기 요청마다 구글 ID 토큰을 `google-auth-library`의 `verifyIdToken`으로 검증하고, 확인된 계정 번호로 `"me-g"+sub`를 내 id로 써요.
 - 구글 앱은 "프로덕션"으로 게시해서 구글 계정이 있으면 누구나 로그인돼요(기본 범위 openid·email·profile만 써서 구글 인증 심사는 필요 없어요). 개인정보처리방침: `/privacy.html`
 - 예시 데이터 없이 빈 목록으로 시작해요. 테스트 데이터는 `test/recruit.test.js` 안에만 있어요.
-- 다음 단계: Vercel Storage(Redis)를 붙여 여러 사람이 같은 목록을 보게 하고, 서버 함수에서 구글 토큰을 검증해요.
+- 스터디·신청·프로필은 **Vercel Storage(Upstash Redis, 무료 플랜, 도쿄)**에 저장해서 여러 사람이 같은 목록을 봐요. 브라우저에는 로그인 토큰만 만료(1시간)까지 둬요.
+
+### 서버 함수 (`/api/recruit/*`)
+
+| 요청 | 하는 일 | 누가 |
+|---|---|---|
+| `GET /api/recruit/state` | 스터디·신청·사람(이름·직군) 전체 | 누구나 |
+| `GET /api/recruit/me` · `PUT /api/recruit/me` | 내 프로필 보기 · 이름과 직군 저장 | 로그인한 나 |
+| `POST /api/recruit/studies` | 스터디 열기 | 로그인 + 프로필 |
+| `PATCH /api/recruit/studies/:id` `{ closed: true }` | 모집 마감 | 모집자만 |
+| `POST /api/recruit/apps` `{ studyId, message }` | 신청 | 로그인 + 프로필 |
+| `PATCH /api/recruit/apps/:id` `{ status }` | 수락·거절 | 모집자만 |
+
+- 규칙은 화면과 같은 `recruit/recruit-logic.js`를 서버에서도 그대로 써요. 모집자 확인도 `canManage`로 서버에서 막아요.
+- 같은 스터디의 신청·수락·마감은 Redis 잠금으로 한 번에 하나씩 처리해서 동시에 눌러도 정원을 넘지 않아요.
+- Redis 키는 `recruit:prod:…`(배포), `recruit:development:…`(vercel dev)처럼 환경마다 나뉘어 있어서 로컬 확인이 실제 데이터와 섞이지 않아요.
+
+```bash
+vercel env pull .env.local                               # Redis 환경변수 받기 (.env*는 git에 올리지 않아요)
+npm test                                                 # 규칙·서버 함수 테스트 (메모리 저장소)
+node --env-file=.env.local --test test/recruit-redis.test.js   # 실제 Redis로 저장·읽기 확인
+RECRUIT_DEV_AUTH=1 vercel dev                            # 로컬 확인: "dev:<번호>:<이름>" 토큰으로 두 사람 흐름 확인 (배포에서는 꺼져 있어요)
+```
 
 ## 사용한 스킬과 프롬프트
 
 - `ui-ux-pro-max` (`.claude/skills/ui-ux-pro-max`, MIT): 빈 상태·로딩·칩·터치 크기 점검
   - `search.py "study group matching community students" --design-system`
   - `search.py "touch target size chip" --domain ux`, `"filter chips toggle state"`, `"loading skeleton empty state"`
+- 프롬프트(서버 저장): "/recruit/ 모집 버전의 데이터를 localStorage에서 Vercel Storage(Upstash Redis, 무료 플랜)로 옮겨 줘. /api 서버 함수에서 구글 ID 토큰을 검증하고, 규칙은 recruit-logic.js를 서버에서도 그대로 쓰고, 모집자만 수락·거절·마감하게 서버에서 막아 줘."
 - 프롬프트(모집 버전): "같은 레포에 /recruit/ 폴더로 공지용 스터디 모집 버전을 만들어 줘. 기획안 버전은 v1-기획안 태그로 고정하고, 우선 브라우저 저장으로 17시까지 만들어 줘"
 - 프롬프트(기획안 버전): "첨부한 스터디 매칭보드 기획안과 matching_test_members.csv를 기준으로, 원티드 Montage 토큰을 써서 화면 4개(R1~R8)를 순수 HTML로 만들고, 7장 규칙은 테스트로 확인해 줘."
 

@@ -71,6 +71,23 @@ test("정원이 차거나 마감하면 신청이 막혀요", () => {
   assert.throws(() => R.apply(S("s1"), seed.apps, seed.people, "p5", "e"), /내가 연/);
 });
 
+test("수락·거절·마감은 모집자만 할 수 있어요", () => {
+  assert.deepEqual(R.canManage(S("s1"), "p5"), { ok: true });
+  assert.match(R.canManage(S("s1"), "p2").reason, /모집자만/);
+  assert.match(R.canManage(S("s1"), null).reason, /로그인/);
+  assert.throws(() => R.closeStudy(S("s1"), "p2"), /모집자만/);
+  const closed = R.closeStudy(S("s1"), "p5");
+  assert.equal(closed.closed, true);
+  assert.equal(S("s1").closed, false); // 원래 스터디는 그대로예요
+});
+
+test("다시 신청하면 마지막 신청이 내 신청이에요", () => {
+  let apps = R.apply(S("s3"), seed.apps, seed.people, "p2", "r1");
+  apps = R.decide(S("s3"), apps, seed.people, "r1", "rejected");
+  apps = R.apply(S("s3"), apps, seed.people, "p2", "r2", "한 번 더요");
+  assert.equal(R.myApplication(S("s3"), apps, "p2").id, "r2");
+});
+
 test("목록은 모집 중인 스터디가 먼저예요", () => {
   const order = R.sortStudies(seed.studies, seed.apps, seed.people).map((s) => s.id);
   assert.equal(order[order.length - 1], "s4");

@@ -32,6 +32,9 @@
   .chip .mi { width: 16px; height: 16px; }
   .chip[disabled] { opacity: .45; cursor: default; }
   .count { color: var(--fg-3); margin: 0 0 var(--spacing-12); }
+  .count-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-8); margin: 0 0 var(--spacing-12); }
+  .count-row .count { margin: 0; }
+  .btn[aria-busy="true"] { cursor: progress; }
 
   /* 스터디 카드 */
   .studies { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-16); margin: 0; padding: 0; list-style: none; }
@@ -126,14 +129,14 @@
   <div id="mePanel" class="card me-panel" role="region" aria-label="나" hidden></div>
 </nav>
 
-<main class="wrap" id="app" tabindex="-1">
-  <div class="skeleton" style="height: 240px; margin-top: var(--spacing-40)" aria-label="불러오는 중"></div>
+<main class="wrap" id="app" tabindex="-1" aria-busy="true">
+  <div class="sec" role="status"><span class="sr">스터디 목록을 불러오고 있어요.</span><div class="skeleton" style="height: 240px" aria-hidden="true"></div></div>
 </main>
 
 <footer class="foot t-caption1">
   <div class="wrap">
     <span><b>스터디 모집</b> · 원티드 디자인 시스템 Montage(MIT)의 디자인 토큰을 사용했어요.</span>
-    <span>원티드와 관련 없는 실습 사이트예요. 데이터는 이 브라우저에만 저장돼요. <a href="/">기획안 버전(매칭보드) 보기</a> · <a href="/privacy.html">개인정보처리방침</a></span>
+    <span>원티드와 관련 없는 실습 사이트예요. 스터디·신청·프로필은 서버(Vercel Storage)에 저장돼서 모두가 같은 목록을 봐요. <a href="/">기획안 버전(매칭보드) 보기</a> · <a href="/privacy.html">개인정보처리방침</a></span>
   </div>
 </footer>
 

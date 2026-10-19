@@ -1,4 +1,4 @@
-// 공지용 스터디 모집 규칙. 화면(recruit.js)과 테스트가 같이 써요.
+// 공지용 스터디 모집 규칙. 화면(recruit.js)·서버 함수(api/_lib/recruit.js)·테스트가 같이 써요.
 // 구성원이 구글로 로그인해 스터디를 열고(요일·목표, 원하면 권장 주제) → 다른 사람이 신청하고 → 모집자가 수락하면 함께해요.
 
 export const ROLES = [
@@ -89,6 +89,19 @@ export function apply(study, apps, people, personId, id, message = "") {
   const c = canApply(study, apps, people, personId);
   if (!c.ok) throw new Error(c.reason);
   return apps.concat({ id, studyId: study.id, personId, status: "pending", message: String(message).trim().slice(0, 80) });
+}
+
+// 수락·거절·마감은 모집자만 할 수 있어요. 서버(/api)도 이 함수로 막아요.
+export function canManage(study, personId) {
+  if (!personId) return { ok: false, reason: "먼저 구글로 로그인해 주세요." };
+  if (study.leaderId !== personId) return { ok: false, reason: "모집자만 수락·거절·마감할 수 있어요." };
+  return { ok: true };
+}
+
+export function closeStudy(study, personId) {
+  const c = canManage(study, personId);
+  if (!c.ok) throw new Error(c.reason);
+  return { ...study, closed: true };
 }
 
 // 수락하면 정원이 찼는지 다시 봐요. 정원이 차면 남은 대기 신청은 그대로 두고 화면에서 "정원 마감"을 보여 줘요.
