@@ -332,3 +332,46 @@ test("다시 열기: 모집 마감일이 지나 마감된 스터디는 지난 �
   assert.throws(() => R.reopenStudy(future, seed.apps, seed.people, "p5", TODAY), /마감한 스터디만/);
   assert.equal(R.reopenStudy({ ...future, closed: true }, seed.apps, seed.people, "p5", TODAY).deadline, "2026-10-30");
 });
+
+// ---------- 스스로 나가기 · 내보내기 ----------
+test("스스로 나가기: 수락된 본인이 나가면 'left'로 남고, 자리가 비고, 다시 신청할 수 있어요", () => {
+  const apps = R.leave(S("s1"), seed.apps, "p7", "x1"); // PO-B는 s1에 수락됨
+  assert.equal(apps.find((a) => a.id === "x1").status, "left");
+  assert.equal(seed.apps.find((a) => a.id === "x1").status, "accepted"); // 원래 목록은 그대로예요
+  assert.deepEqual(R.members(S("s1"), apps, seed.people).map((p) => p.id), ["p5"]);
+  assert.equal(R.seatsLeft(S("s1"), apps, seed.people), R.seatsLeft(S("s1"), seed.apps, seed.people) + 1);
+  assert.deepEqual(R.canApply(S("s1"), apps, seed.people, "p7"), { ok: true });
+});
+
+test("스스로 나가기: 본인만, 수락된 신청만, 취소되지 않은 스터디에서만 돼요", () => {
+  assert.throws(() => R.leave(S("s1"), seed.apps, "p5", "x1"), /본인만/); // 모집자도 남을 나가게 할 수 없어요
+  assert.throws(() => R.leave(S("s1"), seed.apps, null, "x1"), /로그인/);
+  assert.throws(() => R.leave(S("s1"), seed.apps, "p2", "x2"), /함께하는 스터디에서만/); // 대기 중
+  assert.throws(() => R.leave(S("s2"), seed.apps, "p7", "x1"), /찾는 신청이 없어요/); // 다른 스터디의 신청
+  const c = R.cancelStudy(S("s1"), "p5", "2026-10-19T18:00");
+  assert.throws(() => R.leave(c, seed.apps, "p7", "x1"), /취소/);
+});
+
+test("내보내기: 모집자가 수락된 사람을 내보내면 'removed'로 남고, 그 사람은 다시 신청할 수 없어요", () => {
+  const apps = R.removeMember(S("s1"), seed.apps, "p5", "x1");
+  assert.equal(apps.find((a) => a.id === "x1").status, "removed");
+  assert.deepEqual(R.members(S("s1"), apps, seed.people).map((p) => p.id), ["p5"]);
+  assert.match(R.canApply(S("s1"), apps, seed.people, "p7").reason, /내보낸/);
+  assert.throws(() => R.apply(S("s1"), apps, seed.people, "p7", "n9"), /내보낸/);
+});
+
+test("내보내기: 모집자만, 함께하는 사람만, 취소되지 않은 스터디에서만 돼요", () => {
+  assert.throws(() => R.removeMember(S("s1"), seed.apps, "p7", "x1"), /모집자만/);
+  assert.throws(() => R.removeMember(S("s1"), seed.apps, "p5", "x2"), /함께하는 사람만/); // 대기 중
+  assert.throws(() => R.removeMember(S("s1"), seed.apps, "p5", "zz"), /찾는 신청이 없어요/);
+  const c = R.cancelStudy(S("s1"), "p5", "2026-10-19T18:00");
+  assert.throws(() => R.removeMember(c, seed.apps, "p5", "x1"), /취소/);
+});
+
+test("정원이 찼던 스터디에서 한 명이 빠지면 다시 모집 중이 돼요 (직접 마감한 스터디는 그대로 마감)", () => {
+  const full = { ...S("s3"), capacity: 2 }; // 개발A + 개발B
+  assert.equal(R.studyStatus(full, seed.apps, seed.people), "full");
+  const apps = R.leave(full, seed.apps, "p5", "x5");
+  assert.equal(R.studyStatus(full, apps, seed.people), "open");
+  assert.equal(R.studyStatus({ ...full, closed: true }, R.removeMember(full, seed.apps, "p1", "x5"), seed.people), "closed");
+});

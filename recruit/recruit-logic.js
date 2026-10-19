@@ -1,7 +1,7 @@
 // 공지용 스터디 모집 규칙. 화면(recruit.js)·서버 함수(api/_lib/recruit.js)·테스트가 같이 써요.
 // 구성원이 구글로 로그인해 스터디를 열고(이름·요일·목표) → 다른 사람이 신청하고 → 모집자가 수락하면 함께해요.
 // 주제는 따로 고르지 않고 스터디 이름에 적어요.
-// 모집자는 마감·다시 열기·모집 취소를, 신청자는 대기 중인 신청 거두기를 할 수 있어요.
+// 모집자는 마감·다시 열기·모집 취소·내보내기를, 신청자는 대기 중인 신청 거두기와 수락된 뒤 스스로 나가기를 할 수 있어요.
 // 취소·거두기는 지우지 않고 표시만 남겨요(study.canceled, application.status "withdrawn"). 함께하던 사람이 "취소됨"을 볼 수 있어요.
 
 export const ROLES = [
@@ -119,6 +119,7 @@ export function canApply(study, apps, people, personId, today = kstToday()) {
   if (study.leaderId === personId) return { ok: false, reason: "내가 연 스터디예요." };
   if (study.canceled) return { ok: false, reason: "모집자가 취소한 스터디예요." }; // 함께하던 사람에게도 이 이유가 먼저예요
   const mine = myApplication(study, apps, personId);
+  if (mine && mine.status === "removed") return { ok: false, reason: "모집자가 내보낸 스터디라 다시 신청할 수 없어요." };
   if (mine && mine.status === "accepted") return { ok: false, reason: "이미 함께하고 있어요." };
   if (mine && mine.status === "pending") return { ok: false, reason: "신청했어요. 모집자의 답을 기다려 주세요." };
   if (study.closed) return { ok: false, reason: "모집이 마감됐어요." };
@@ -190,6 +191,26 @@ export function withdraw(study, apps, personId, appId) {
   if (study.canceled) throw new Error("취소된 스터디예요.");
   if (a.status !== "pending") throw new Error("대기 중인 신청만 취소할 수 있어요.");
   return apps.map((x) => (x.id === appId ? { ...x, status: "withdrawn" } : x));
+}
+
+// 스스로 나가기: 수락된 본인만 나갈 수 있어요. "left"로 남고 자리가 비어요. 다시 신청하면 모집자가 다시 수락해요.
+export function leave(study, apps, personId, appId) {
+  if (!personId) throw new Error("먼저 구글로 로그인해 주세요.");
+  const a = apps.find((x) => x.id === appId && x.studyId === study.id);
+  if (!a) throw new Error("찾는 신청이 없어요.");
+  if (a.personId !== personId) throw new Error("본인만 나갈 수 있어요.");
+  if (study.canceled) throw new Error("취소된 스터디예요.");
+  if (a.status !== "accepted") throw new Error("함께하는 스터디에서만 나갈 수 있어요.");
+  return apps.map((x) => (x.id === appId ? { ...x, status: "left" } : x));
+}
+
+// 내보내기: 모집자만 수락된 사람을 내보낼 수 있어요. "removed"로 남고 자리가 비어요. 내보낸 사람은 다시 신청할 수 없어요.
+export function removeMember(study, apps, personId, appId) {
+  manage(study, personId);
+  const a = apps.find((x) => x.id === appId && x.studyId === study.id);
+  if (!a) throw new Error("찾는 신청이 없어요.");
+  if (a.status !== "accepted") throw new Error("함께하는 사람만 내보낼 수 있어요.");
+  return apps.map((x) => (x.id === appId ? { ...x, status: "removed" } : x));
 }
 
 // 수락하면 정원이 찼는지 다시 봐요. 정원이 차면 남은 대기 신청은 그대로 두고 화면에서 "정원 마감"을 보여 줘요.
