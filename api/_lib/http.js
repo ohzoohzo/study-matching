@@ -3,6 +3,7 @@
 import { HttpError } from "./errors.js";
 import { redisStore } from "./store.js";
 import { verifyGoogleToken } from "./auth.js";
+import { webPushFromEnv, sendPush } from "./push.js";
 
 export function send(res, status, body) {
   res.statusCode = status;
@@ -30,12 +31,14 @@ async function readUser(req, verify) {
 }
 
 let store = null;
+let push; // undefined: 아직 환경변수를 안 읽음, null: 알림 키가 없음
 const defaults = {
   get store() { return (store = store || redisStore()); },
   verify: verifyGoogleToken,
+  get push() { if (push === undefined) push = webPushFromEnv(); return push; },
 };
 
-// methods: { GET: (ctx) => ({ status?, body }) } — ctx: { store, query, body, user() }
+// methods: { GET: (ctx) => ({ status?, body }) } — ctx: { store, query, body, user(), push, notify(messages) }
 export function handler(methods, deps = defaults) {
   const allow = Object.keys(methods).join(", ");
   return async function (req, res) {
@@ -45,7 +48,9 @@ export function handler(methods, deps = defaults) {
       return send(res, 405, { error: "이 주소는 " + allow + " 요청만 받아요." });
     }
     try {
-      const ctx = { store: deps.store, query: req.query || {}, body: req.method === "GET" ? {} : readBody(req), user: () => readUser(req, deps.verify) };
+      const st = deps.store, pu = deps.push || null;
+      const ctx = { store: st, query: req.query || {}, body: req.method === "GET" ? {} : readBody(req), user: () => readUser(req, deps.verify),
+        push: pu, notify: (messages) => sendPush(st, pu, messages) };
       const out = await fn(ctx);
       return send(res, out.status || 200, out.body);
     } catch (err) {

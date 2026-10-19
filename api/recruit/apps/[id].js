@@ -7,6 +7,6 @@ import { handler } from "../../_lib/http.js";
 import { updateApp } from "../../_lib/recruit.js";
 
 export const methods = {
-  PATCH: async ({ store, user, query, body }) => ({ body: await updateApp(store, await user(), String(query.id || ""), body) }),
+  PATCH: async ({ store, user, query, body, notify }) => ({ body: await updateApp(store, await user(), String(query.id || ""), body, notify) }),
 };
 export default handler(methods);

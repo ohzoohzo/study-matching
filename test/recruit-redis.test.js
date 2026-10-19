@@ -47,3 +47,18 @@ test("Redis에 저장한 신청 거두기·다시 열기·모집 취소를 다�
     await store.dropAll();
   }
 });
+
+test("Redis에 브라우저 푸시 구독을 저장·삭제하고, 공개 목록(load)에는 넣지 않아요", { skip: !on && "Redis 환경변수가 없어서 건너뛰어요" }, async () => {
+  const store = redisStore({ prefix: "recruit:test:" + randomUUID() + ":" });
+  try {
+    const sub = { endpoint: "https://fcm.googleapis.com/send/redis-test", keys: { p256dh: "p", auth: "a" } };
+    assert.deepEqual(await store.getSubs("me-g1"), []);
+    await store.setSubs("me-g1", [sub]);
+    assert.deepEqual(await store.getSubs("me-g1"), [sub]);
+    assert.ok(!JSON.stringify(await store.load()).includes("redis-test"));
+    await store.setSubs("me-g1", []);
+    assert.deepEqual(await store.getSubs("me-g1"), []);
+  } finally {
+    await store.dropAll();
+  }
+});

@@ -5,6 +5,7 @@
 //   recruit:<환경>:people   해시  사람 id → {id, name, role} JSON (이메일은 두지 않아요)
 //   recruit:<환경>:studies  해시  스터디 id → 스터디 JSON
 //   recruit:<환경>:apps     해시  신청 id → 신청 JSON
+//   recruit:<환경>:subs     해시  사람 id → 브라우저 푸시 구독 목록 JSON (기기마다 하나, 공개 목록 state에는 나오지 않아요)
 //   recruit:<환경>:seq      번호  s-1, a-2처럼 id를 만들 때 하나씩 올려요
 //   recruit:<환경>:lock:…   잠금  같은 스터디의 신청·수락·마감이 동시에 겹치지 않게 잠깐 잡아요
 import { randomUUID } from "node:crypto";
@@ -54,6 +55,14 @@ export function redisStore({ env = process.env, prefix } = {}) {
     async nextId(p) {
       return p + "-" + (await redis.incr(base + "seq"));
     },
+    async getSubs(personId) {
+      const v = await redis.hget(base + "subs", personId);
+      return v ? JSON.parse(v) : [];
+    },
+    async setSubs(personId, list) {
+      if (list.length) await redis.hset(base + "subs", { [personId]: JSON.stringify(list) });
+      else await redis.hdel(base + "subs", personId);
+    },
     async withLock(name, fn) {
       const key = base + "lock:" + name, mine = randomUUID();
       for (let i = 0; i < 25; i++) {
@@ -75,6 +84,7 @@ export function redisStore({ env = process.env, prefix } = {}) {
 // 테스트용: Redis와 같은 모양이고, 기다림이 끼게 해서 동시 요청도 실제처럼 겹쳐요
 export function memoryStore() {
   const data = Object.fromEntries(KINDS.map((k) => [k, new Map()]));
+  const subs = new Map();
   const tick = () => new Promise((r) => setImmediate(r));
   let seq = 0;
   let chain = Promise.resolve();
@@ -86,6 +96,8 @@ export function memoryStore() {
     async get(kind, id) { await tick(); const v = data[kind].get(id); return v ? structuredClone(v) : null; },
     async put(kind, obj) { await tick(); data[kind].set(obj.id, structuredClone(obj)); },
     async nextId(p) { await tick(); seq += 1; return p + "-" + seq; },
+    async getSubs(id) { await tick(); return structuredClone(subs.get(id) || []); },
+    async setSubs(id, list) { await tick(); if (list.length) subs.set(id, structuredClone(list)); else subs.delete(id); },
     withLock(name, fn) {
       const run = chain.then(() => fn());
       chain = run.then(() => {}, () => {});

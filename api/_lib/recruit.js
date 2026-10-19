@@ -29,6 +29,13 @@ function needLeader(study, user) {
 // 한국 시간 "2026-10-19T17:05" (목록 정렬에 써요)
 const kstMinute = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 16);
 const replace = (list, item) => list.map((x) => (x.id === item.id ? item : x));
+// 쓰기가 끝나고 스터디 잠금이 풀린 뒤에 알림을 보내요 (누구에게 무엇을 보낼지는 recruit-logic의 pushMessages가 정해요)
+const noop = async () => {};
+async function announce(out, kind, notify) {
+  const study = out.study || out.state.studies.find((x) => x.id === out.app.studyId);
+  await notify(R.pushMessages(kind, { study, app: out.app || null, apps: out.state.apps, people: out.state.people }));
+  return out;
+}
 
 export function getState(store) {
   return store.load();
@@ -66,10 +73,10 @@ export async function createStudy(store, user, body) {
 }
 
 // 모집자만: { closed: true } 마감 · { closed: false } 다시 열기 · { canceled: true } 모집 취소(되돌릴 수 없어요)
-export async function updateStudy(store, user, id, body) {
+export async function updateStudy(store, user, id, body, notify = noop) {
   const change = body.canceled === true ? "cancel" : body.closed === true ? "close" : body.closed === false ? "reopen" : "";
   if (!change) throw new HttpError(400, "모집 마감·다시 열기·모집 취소만 할 수 있어요.");
-  return store.withLock("study:" + id, async () => {
+  const out = await store.withLock("study:" + id, async () => {
     const state = await store.load();
     const s = needStudy(state, id);
     needLeader(s, user);
@@ -80,11 +87,12 @@ export async function updateStudy(store, user, id, body) {
     await store.put("studies", study);
     return { study, state: { ...state, studies: replace(state.studies, study) } };
   });
+  return change === "cancel" ? announce(out, "canceled", notify) : out;
 }
 
-export async function applyStudy(store, user, body) {
+export async function applyStudy(store, user, body, notify = noop) {
   const studyId = text(body.studyId);
-  return store.withLock("study:" + studyId, async () => {
+  const out = await store.withLock("study:" + studyId, async () => {
     const state = await store.load();
     const s = needStudy(state, studyId);
     needPerson(state, user);
@@ -99,15 +107,16 @@ export async function applyStudy(store, user, body) {
     await store.put("apps", app);
     return { app, state: { ...state, apps } };
   });
+  return announce(out, "applied", notify);
 }
 
 // 신청 하나 바꾸기: { status: "accepted" | "rejected" } 모집자의 수락·거절 · { status: "removed" } 모집자의 내보내기
 //                  { status: "withdrawn" } 신청자의 거두기 · { status: "left" } 수락된 본인의 나가기
-export function updateApp(store, user, id, body) {
-  if (body.status === "withdrawn") return withdrawApp(store, user, id);
-  if (body.status === "left") return leaveApp(store, user, id);
-  if (body.status === "removed") return removeApp(store, user, id);
-  return decideApp(store, user, id, body);
+export function updateApp(store, user, id, body, notify = noop) {
+  if (body.status === "withdrawn") return withdrawApp(store, user, id, notify);
+  if (body.status === "left") return leaveApp(store, user, id, notify);
+  if (body.status === "removed") return removeApp(store, user, id, notify);
+  return decideApp(store, user, id, body, notify);
 }
 
 // 어느 스터디를 잠글지 알려고 신청을 먼저 봐요. 잠근 뒤에 다시 읽어서 판단해요.
@@ -125,37 +134,41 @@ async function saveApp(store, state, apps, id) {
   return { app, state: { ...state, apps } };
 }
 
-export async function decideApp(store, user, id, body) {
+export async function decideApp(store, user, id, body, notify = noop) {
   const status = body.status;
   if (status !== "accepted" && status !== "rejected") throw new HttpError(400, "수락이나 거절만 할 수 있어요.");
-  return lockApp(store, id, (state, s) => {
+  const out = await lockApp(store, id, (state, s) => {
     needLeader(s, user);
     return saveApp(store, state, rule(() => R.decide(s, state.apps, state.people, id, status)), id);
   });
+  return announce(out, status, notify);
 }
 
 // 신청한 본인만 거둘 수 있어요 (모집자도 남의 신청은 못 거둬요)
-export async function withdrawApp(store, user, id) {
-  return lockApp(store, id, (state, s) => {
+export async function withdrawApp(store, user, id, notify = noop) {
+  const out = await lockApp(store, id, (state, s) => {
     const a = state.apps.find((x) => x.id === id);
     if (a.personId !== user.id) throw new HttpError(403, "내 신청만 취소할 수 있어요.");
     return saveApp(store, state, rule(() => R.withdraw(s, state.apps, user.id, id)), id);
   });
+  return announce(out, "withdrawn", notify);
 }
 
 // 수락된 본인만 나갈 수 있어요 (모집자도 남을 나가게 할 수 없어요. 그때는 내보내기를 써요)
-export async function leaveApp(store, user, id) {
-  return lockApp(store, id, (state, s) => {
+export async function leaveApp(store, user, id, notify = noop) {
+  const out = await lockApp(store, id, (state, s) => {
     const a = state.apps.find((x) => x.id === id);
     if (a.personId !== user.id) throw new HttpError(403, "본인만 나갈 수 있어요.");
     return saveApp(store, state, rule(() => R.leave(s, state.apps, user.id, id)), id);
   });
+  return announce(out, "left", notify);
 }
 
 // 모집자만 수락된 사람을 내보낼 수 있어요
-export async function removeApp(store, user, id) {
-  return lockApp(store, id, (state, s) => {
+export async function removeApp(store, user, id, notify = noop) {
+  const out = await lockApp(store, id, (state, s) => {
     needLeader(s, user);
     return saveApp(store, state, rule(() => R.removeMember(s, state.apps, user.id, id)), id);
   });
+  return announce(out, "removed", notify);
 }

@@ -6,6 +6,6 @@ import { handler } from "../../_lib/http.js";
 import { updateStudy } from "../../_lib/recruit.js";
 
 export const methods = {
-  PATCH: async ({ store, user, query, body }) => ({ body: await updateStudy(store, await user(), String(query.id || ""), body) }),
+  PATCH: async ({ store, user, query, body, notify }) => ({ body: await updateStudy(store, await user(), String(query.id || ""), body, notify) }),
 };
 export default handler(methods);
