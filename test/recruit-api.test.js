@@ -211,3 +211,132 @@ test("dev 토큰은 로컬(vercel dev)에서 RECRUIT_DEV_AUTH=1일 때만 켜지
   assert.equal(devAuthOn({}), false);
   assert.equal(devAuthOn({ VERCEL_ENV: "development" }), false);
 });
+
+// 모집자A가 열고, 신청자B는 수락, 신청자C는 대기인 스터디를 만들어요
+async function studyWithApps(call) {
+  await withPeople(call);
+  const s = (await call(studiesApi, "POST", { token: "tokA", body: study })).body.study;
+  const b = (await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } })).body.app;
+  await call(appApi, "PATCH", { token: "tokA", query: { id: b.id }, body: { status: "accepted" } });
+  const c = (await call(appsApi, "POST", { token: "tokC", body: { studyId: s.id } })).body.app;
+  return { s, b, c };
+}
+
+test("로그인하지 않으면 모집 취소·다시 열기·신청 취소를 401로 막아요", async () => {
+  const call = setup();
+  assert.equal((await call(studyApi, "PATCH", { query: { id: "s-1" }, body: { canceled: true } })).status, 401);
+  assert.equal((await call(studyApi, "PATCH", { query: { id: "s-1" }, body: { closed: false } })).status, 401);
+  assert.equal((await call(appApi, "PATCH", { query: { id: "a-1" }, body: { status: "withdrawn" } })).status, 401);
+  assert.equal((await call(studyApi, "PATCH", { token: "forged", query: { id: "s-1" }, body: { canceled: true } })).status, 401);
+});
+
+test("모집자가 스터디를 취소하면 다른 사람 목록과 신청에 반영돼요", async () => {
+  const call = setup();
+  const { s, b, c } = await studyWithApps(call);
+  // 모집자가 아니면 취소할 수 없어요
+  let r = await call(studyApi, "PATCH", { token: "tokB", query: { id: s.id }, body: { canceled: true } });
+  assert.equal(r.status, 403);
+  assert.match(r.body.error, /모집자만/);
+  r = await call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body: { canceled: true } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.study.canceled, true);
+  assert.match(r.body.study.canceledAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d$/);
+  // 다른 사람이 받는 상태: 스터디는 지워지지 않고 canceled로 남고, 수락·대기 기록도 남아요
+  const st = (await call(stateApi, "GET")).body;
+  assert.equal(st.studies.find((x) => x.id === s.id).canceled, true);
+  assert.deepEqual(st.apps.map((a) => [a.id, a.status]), [[b.id, "accepted"], [c.id, "pending"]]);
+  // 취소한 스터디에는 신청·수락·마감·다시 취소가 막혀요
+  r = await call(appApi, "PATCH", { token: "tokA", query: { id: c.id }, body: { status: "accepted" } });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /취소/);
+  r = await call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body: { closed: true } });
+  assert.equal(r.status, 409);
+  r = await call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body: { canceled: true } });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /이미 취소/);
+  r = await call(appApi, "PATCH", { token: "tokC", query: { id: c.id }, body: { status: "withdrawn" } });
+  assert.equal(r.status, 409);
+});
+
+test("스터디 바꾸기는 마감·다시 열기·취소만 받아요 (취소를 되돌릴 수 없어요)", async () => {
+  const call = setup();
+  const { s } = await studyWithApps(call);
+  for (const body of [{ canceled: false }, {}, { closed: "yes" }, { title: "바꾼 이름" }]) {
+    const r = await call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body });
+    assert.equal(r.status, 400, JSON.stringify(body));
+  }
+  assert.equal((await call(studyApi, "PATCH", { token: "tokA", query: { id: "s-404" }, body: { canceled: true } })).status, 404);
+});
+
+test("모집자가 마감한 스터디를 다시 열면 다시 신청을 받아요", async () => {
+  const call = setup();
+  const { s } = await studyWithApps(call);
+  await call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body: { closed: true } });
+  let r = await call(studyApi, "PATCH", { token: "tokB", query: { id: s.id }, body: { closed: false } });
+  assert.equal(r.status, 403);
+  r = await call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body: { closed: false } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.study.closed, false);
+  assert.equal((await call(stateApi, "GET")).body.studies[0].closed, false);
+  // 마감하지 않은 스터디를 또 열면 409
+  r = await call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body: { closed: false } });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /마감한 스터디만/);
+});
+
+test("신청자가 대기 중인 신청을 취소하면 모집자 화면에서 빠지고, 다시 신청할 수 있어요", async () => {
+  const call = setup();
+  const { s, b, c } = await studyWithApps(call);
+  // 다른 사람(모집자 포함)은 남의 신청을 거둘 수 없어요
+  let r = await call(appApi, "PATCH", { token: "tokB", query: { id: c.id }, body: { status: "withdrawn" } });
+  assert.equal(r.status, 403);
+  assert.match(r.body.error, /내 신청만/);
+  r = await call(appApi, "PATCH", { token: "tokA", query: { id: c.id }, body: { status: "withdrawn" } });
+  assert.equal(r.status, 403);
+  // 수락된 신청은 거둘 수 없어요
+  r = await call(appApi, "PATCH", { token: "tokB", query: { id: b.id }, body: { status: "withdrawn" } });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /대기 중인 신청만/);
+  // 신청자 본인은 거둘 수 있어요
+  r = await call(appApi, "PATCH", { token: "tokC", query: { id: c.id }, body: { status: "withdrawn" } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.app.status, "withdrawn");
+  const st = (await call(stateApi, "GET")).body;
+  assert.deepEqual(st.apps.filter((a) => a.status === "pending"), []);
+  // 거둔 신청은 수락할 수 없어요
+  r = await call(appApi, "PATCH", { token: "tokA", query: { id: c.id }, body: { status: "accepted" } });
+  assert.equal(r.status, 409);
+  // 다시 신청하면 새 대기 신청이 생겨요
+  r = await call(appsApi, "POST", { token: "tokC", body: { studyId: s.id, message: "다시 할게요" } });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.app.status, "pending");
+  assert.equal((await call(appApi, "PATCH", { token: "tokC", query: { id: "a-404" }, body: { status: "withdrawn" } })).status, 404);
+});
+
+test("모집자가 수락하는 순간 신청자가 취소해도 둘 중 하나만 돼요", async () => {
+  const call = setup();
+  const { c } = await studyWithApps(call);
+  const results = await Promise.all([
+    call(appApi, "PATCH", { token: "tokA", query: { id: c.id }, body: { status: "accepted" } }),
+    call(appApi, "PATCH", { token: "tokC", query: { id: c.id }, body: { status: "withdrawn" } }),
+  ]);
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+  const st = (await call(stateApi, "GET")).body;
+  assert.ok(["accepted", "withdrawn"].includes(st.apps.find((a) => a.id === c.id).status));
+});
+
+test("모집자가 취소하는 순간 들어온 신청은 받지 않아요", async () => {
+  const call = setup();
+  await withPeople(call);
+  const s = (await call(studiesApi, "POST", { token: "tokA", body: study })).body.study;
+  const [cancel, apply] = await Promise.all([
+    call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body: { canceled: true } }),
+    call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } }),
+  ]);
+  assert.equal(cancel.status, 200);
+  // 잠금 순서대로: 신청이 먼저면 대기 신청이 남고(스터디는 취소됨), 취소가 먼저면 신청이 409예요
+  if (apply.status === 201) assert.equal(apply.body.app.status, "pending");
+  else assert.equal(apply.status, 409);
+  const st = (await call(stateApi, "GET")).body;
+  assert.equal(st.studies[0].canceled, true);
+});
