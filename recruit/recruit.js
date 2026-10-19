@@ -753,7 +753,7 @@ document.addEventListener("keydown", (e) => {
   const t = e.target;
   if (!t.dataset || t.dataset.taginput === undefined || e.isComposing || e.keyCode === 229) return;
   if (e.key === "Enter" || e.key === ",") { e.preventDefault(); flushTagInput(t); }
-  else if (e.key === "Backspace" && !t.value) {
+  else if (e.key === "Backspace" && !t.value && !e.repeat) { // 글자를 지우려고 길게 누른 Backspace가 칩까지 줄줄이 지우지 않게, 한 번 누를 때만 빼요
     const field = t.closest("[data-tagfield]"), n = tagListOf(field.dataset.tagfield).length;
     if (n) { e.preventDefault(); removeTagAt(field, n - 1); }
   }

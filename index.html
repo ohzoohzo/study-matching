@@ -57,6 +57,8 @@
   .tag-btn:hover { background: var(--semantic-surface-neutral-tertiary); }
   .tag-btn[aria-pressed="true"] { background: var(--brand-subtle); color: var(--brand-fg); font-weight: 600; }
   .tag-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+  /* 손가락으로 누르는 기기에서는 태그 버튼을 칩(36px)만큼 키워서, 잘못 눌러 상세로 넘어가지 않게 해요 */
+  @media (pointer: coarse) { .tag-btn { min-height: 36px; padding: 0 var(--spacing-10); } .study-tags { gap: var(--spacing-6); } }
   .study .tags { display: flex; flex-wrap: wrap; gap: var(--spacing-6); }
   .study h3 { margin: 0; }
   .study .goal { margin: 0; color: var(--fg-2); }
@@ -105,7 +107,11 @@
   .tag-text:focus-visible { outline: 0; } /* 포커스는 바깥 상자(.tag-input:focus-within)가 보여 줘요 */
   .tag-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-6); margin-top: var(--spacing-8); }
   .tag-suggest:empty { display: none; }
-  .chip-sm { height: 32px; padding: 0 var(--spacing-10); }
+  .chip-sm { height: auto; min-height: 32px; padding: var(--spacing-4) var(--spacing-10); }
+  /* 태그 칩은 글자가 넓어도(예: 영문 대문자 20자) 줄을 바꿔서 375px 창을 옆으로 밀지 않아요 */
+  .chip-sm, .chip[data-tagq] { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+  .chip[data-tagq] { height: auto; min-height: 36px; }
+  .me-panel > * { min-width: 0; }
   .chip-sm .mi { width: 16px; height: 16px; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-8); }
 
