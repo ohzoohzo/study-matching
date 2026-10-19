@@ -280,3 +280,20 @@ export function markRead(list, ids) {
 export const unreadCount = (list) => (list || []).filter((n) => !n.read).length;
 // 이 스터디 상세를 열면 읽음으로 바꿀 알림
 export const unreadFor = (list, studyId) => (list || []).filter((n) => !n.read && n.studyId === studyId).map((n) => n.id);
+
+// 활기 숫자: 목록 위 숫자 칸에 보여 줘요. 이름은 빼고 숫자만 세요.
+//   people 가입한 사람(이름·직군을 저장한 사람) · roles 직군별 인원 · openStudies 모집 중인 스터디
+//   members 스터디에 함께하는 사람(모집자+수락된 사람, 한 번씩, 취소한 스터디 빼고) · newThisWeek 최근 7일(오늘 포함) 새로 열린 스터디
+export function activityStats(studies, apps, people, today = kstToday()) {
+  const live = studies.filter((s) => !s.canceled);
+  const joined = new Set();
+  live.forEach((s) => members(s, apps, people).forEach((p) => joined.add(p.id)));
+  const from = new Date(Date.parse(today) - 6 * 86400000).toISOString().slice(0, 10);
+  return {
+    people: people.length,
+    roles: Object.fromEntries(ROLES.map((r) => [r.key, people.filter((p) => p.role === r.key).length])),
+    openStudies: live.filter((s) => isOpen(s, apps, people, today)).length,
+    members: joined.size,
+    newThisWeek: live.filter((s) => { const d = String(s.createdAt || "").slice(0, 10); return d >= from && d <= today; }).length,
+  };
+}
