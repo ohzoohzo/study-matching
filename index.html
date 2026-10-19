@@ -44,7 +44,19 @@
   /* 스터디 카드 */
   .studies { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-16); margin: 0; padding: 0; list-style: none; }
   .studies > li { min-width: 0; }
-  .study { display: flex !important; flex-direction: column; gap: var(--spacing-10); height: 100%; }
+  .study { display: flex !important; flex-direction: column; gap: var(--spacing-10); height: 100%; position: relative; transition: box-shadow .2s, border-color .2s, transform .2s; }
+  /* 카드 전체가 상세로 가는 링크예요: 제목 링크의 ::after가 카드를 덮고, 해시태그 버튼만 그 위에 올라와요 */
+  .study:hover { border-color: var(--line); box-shadow: var(--semantic-elevation-shadow-normal-medium); transform: translateY(-2px); }
+  .study:has(.study-link:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .study-link { color: inherit; text-decoration: none; }
+  .study-link:focus-visible { outline: none; }
+  .study-link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+  .study-tags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-4); }
+  .detail-tags { margin-top: var(--spacing-8); }
+  .tag-btn { position: relative; z-index: 1; min-height: 28px; border: 0; cursor: pointer; overflow-wrap: anywhere; text-align: left; }
+  .tag-btn:hover { background: var(--semantic-surface-neutral-tertiary); }
+  .tag-btn[aria-pressed="true"] { background: var(--brand-subtle); color: var(--brand-fg); font-weight: 600; }
+  .tag-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
   .study .tags { display: flex; flex-wrap: wrap; gap: var(--spacing-6); }
   .study h3 { margin: 0; }
   .study .goal { margin: 0; color: var(--fg-2); }
@@ -147,7 +159,7 @@
     .filters .row > .label { width: 100%; }
     .dates { grid-template-columns: 1fr; }
   }
-  @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .bar i, .study { transition: none; } .study:hover { transform: none; } }
 </style>
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>

@@ -435,16 +435,27 @@ function seatsBar(s) {
   return '<div class="seats"><div class="line t-caption1"><span>함께하는 사람 <b>' + n + " / " + s.capacity + "명</b></span><span>" + (left ? left + "자리 남았어요" : "정원이 찼어요") + '</span></div><span class="bar' + (left ? "" : " full") + '" aria-hidden="true"><i style="width:' + pct + '%"></i></span></div>';
 }
 
+// 해시태그 버튼: 누르면 목록 검색어에 #태그를 넣거나 빼요 (눌림 = 지금 검색어에 들어 있음)
+const tagQBtn = (t, cls = "tag tag-btn") => '<button type="button" class="' + cls + '" data-tagq="' + esc(t) + '" aria-pressed="' + R.tagInQuery(filter.q, t) + '">' + hashText(t) + "</button>";
+// 카드에는 태그를 3개까지 보여 주고 나머지는 "+2"처럼 수만 적어요
+function cardTags(s) {
+  const tags = R.tagsOf(s);
+  if (!tags.length) return "";
+  const more = tags.length - 3;
+  return '<div class="study-tags" role="group" aria-label="해시태그">' + tags.slice(0, 3).map((t) => tagQBtn(t)).join("") + (more > 0 ? '<span class="note t-caption1">+' + more + '<span class="sr">개 더</span></span>' : "") + "</div>";
+}
+
+// 카드 전체를 누르면 상세로 가요(제목 링크가 카드를 덮어요). 해시태그 버튼은 그 위에 있어서 따로 눌려요.
 function studyCard(s) {
   const leader = person(s.leaderId);
-  return '<li><a class="card study" href="#/s/' + encodeURIComponent(s.id) + '">' +
+  return '<li><article class="card study">' +
     '<div class="tags">' + statusTag(s) + dueTag(s) + "</div>" +
-    '<h3 class="t-headline1">' + esc(s.title) + "</h3>" +
+    '<h3 class="t-headline1"><a class="study-link" href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + "</a></h3>" + cardTags(s) +
     '<p class="goal t-body2">' + esc(s.goal) + "</p>" +
     '<div class="meta t-caption1">' + metaLine(s) + "</div>" +
     (dateLine(s) ? '<div class="meta t-caption1">' + dateLine(s) + "</div>" : "") +
     '<div class="leader t-caption1">모집자 ' + (leader ? "<b>" + esc(leader.name) + "</b> · " + R.ROLE_LABEL[leader.role] : "알 수 없음") + "</div>" +
-    seatsBar(s) + mixRow(s) + "</a></li>";
+    seatsBar(s) + mixRow(s) + "</article></li>";
 }
 
 // 다른 사람이 바꾼 내용(새 스터디, 신청, 수락)을 바로 보고 싶을 때 눌러요
@@ -478,6 +489,19 @@ function updateResults() {
   const list = listedStudies();
   box.innerHTML = listBody(list);
   count.textContent = countText(list.length);
+  syncTagPressed();
+}
+// 검색어가 바뀌면 내 해시태그 칩의 눌림 상태도 맞춰요
+function syncTagPressed() {
+  document.querySelectorAll("[data-tagq]").forEach((x) => x.setAttribute("aria-pressed", String(R.tagInQuery(filter.q, x.dataset.tagq))));
+}
+// 칩·카드 태그로 검색어를 바꿔요. 검색창 글자와 목록·개수만 바꾸고 화면 전체는 다시 그리지 않아요
+function setQuery(q, focusSearch) {
+  filter.q = q;
+  const input = document.getElementById("f-q");
+  if (input) input.value = q;
+  updateResults();
+  if (focusSearch && input) input.focus();
 }
 
 function viewList() {
@@ -485,8 +509,11 @@ function viewList() {
   const list = listedStudies();
 
   const search = '<div class="row"><label class="label t-label1" for="f-q">찾기</label><div class="input search">' + ICON.search +
-    '<input id="f-q" type="search" data-search value="' + esc(filter.q) + '" placeholder="스터디 이름·목표·모집자 이름" autocomplete="off" enterkeyhint="search" aria-describedby="f-q-hint"></div>' +
-    '<span id="f-q-hint" class="sr">칠 때마다 아래 목록이 바뀌어요.</span></div>';
+    '<input id="f-q" type="search" data-search value="' + esc(filter.q) + '" placeholder="스터디 이름·목표·모집자·#해시태그" autocomplete="off" enterkeyhint="search" aria-describedby="f-q-hint"></div>' +
+    '<span id="f-q-hint" class="sr">칠 때마다 아래 목록이 바뀌어요. #을 붙이면 해시태그에서 찾아요.</span></div>';
+  // 내 해시태그: 누르면 그 태그 스터디만 남아요(다시 누르면 빠져요)
+  const myTags = m ? R.tagsOf(m) : [];
+  const mine = myTags.length ? '<div class="row" role="group" aria-labelledby="f-tags-l"><span class="label t-label1" id="f-tags-l">내 해시태그</span>' + myTags.map((t) => tagQBtn(t, "chip")).join("") + "</div>" : "";
   const toggles = '<button type="button" class="chip" data-toggle="openOnly" aria-pressed="' + filter.openOnly + '">' + ICON.check + "모집 중만</button>" +
     '<button type="button" class="chip" data-toggle="needMine" aria-pressed="' + filter.needMine + '"' + (m ? "" : ' disabled aria-describedby="needMineHint"') + ">" + ICON.check + "내 직군이 비어 있는 스터디" + (m ? " (" + R.ROLE_LABEL[m.role] + ")" : "") + "</button>" +
     (m ? "" : '<span id="needMineHint" class="t-caption1 note">로그인하면 쓸 수 있어요.</span>');
@@ -494,7 +521,7 @@ function viewList() {
   return '<header class="page-head head-row"><div><h1 class="t-title1">함께할 스터디를 찾아요</h1><p>스터디 이름·요일·목표를 보고 신청하거나, 직접 스터디를 열어 함께할 사람을 모아요. 6명 이내를 권장해요.</p></div>' +
     '<a class="btn btn-primary" href="#/new">' + ICON.add + "스터디 열기</a></header>" +
     '<section aria-labelledby="list-title"><h2 id="list-title" class="sr">스터디 목록</h2>' +
-    '<div class="filters">' + search + '<div class="row" role="group" aria-labelledby="f-view-l"><span class="label t-label1" id="f-view-l">보기</span>' + toggles + "</div></div>" +
+    '<div class="filters">' + search + mine + '<div class="row" role="group" aria-labelledby="f-view-l"><span class="label t-label1" id="f-view-l">보기</span>' + toggles + "</div></div>" +
     '<div class="count-row"><p class="count t-label1" id="count" role="status" aria-atomic="true">' + countText(list.length) + "</p>" + syncBtn("목록 새로 고침") + "</div>" +
     '<div id="results">' + listBody(list) + "</div></section>";
 }
@@ -566,7 +593,7 @@ function leaderBox(s) {
   const full = R.seatsLeft(s, S.apps, S.people) === 0;
   let html = head + ' <span class="t-label1 note" aria-live="polite">대기 ' + pending.length + "명</span></h2>" + overlapBox(s) +
     (full && pending.length ? '<p class="note t-caption1">정원이 다 차서 더 수락할 수 없어요. 거절하거나 그대로 둘 수 있어요.</p>' : "") +
-    (pending.length ? '<ul class="rows">' + pending.map((a) => { const p = person(a.personId); if (!p) return ""; return '<li><div class="who"><b>' + esc(p.name) + ' <span class="tag">' + R.ROLE_LABEL[p.role] + "</span></b><small>" + (a.message ? esc(a.message) : "남긴 말 없음") + "</small><small>" + timesSmall(a) + "</small></div>" +
+    (pending.length ? '<ul class="rows">' + pending.map((a) => { const p = person(a.personId); if (!p) return ""; return '<li><div class="who"><b>' + esc(p.name) + ' <span class="tag">' + R.ROLE_LABEL[p.role] + "</span></b><small>" + (a.message ? esc(a.message) : "남긴 말 없음") + "</small><small>" + timesSmall(a) + "</small>" + (R.tagsOf(p).length ? "<small>" + R.tagsOf(p).map(hashText).join(" ") + "</small>" : "") + "</div>" +
       '<div class="actions"><button type="button" class="btn btn-primary btn-sm" data-act="accept" data-app="' + esc(a.id) + '"' + (full ? " disabled" : "") + ' aria-label="' + esc(p.name) + '님 수락">수락</button><button type="button" class="btn btn-outline btn-sm" data-act="reject" data-app="' + esc(a.id) + '" aria-label="' + esc(p.name) + '님 거절">거절</button></div></li>'; }).join("") + "</ul>"
       : '<p class="note t-body2">아직 대기 중인 신청이 없어요.</p>');
   if (s.closed || closedByDate(s)) {
@@ -645,6 +672,7 @@ function viewDetail(id) {
   return '<header class="page-head"><a class="more t-label1" href="#/">' + ICON.back + '목록으로</a>' +
     '<div class="actions" style="margin-top:var(--spacing-12)">' + statusTag(s) + dueTag(s) + "</div>" +
     '<h1 class="t-title1" style="margin-top:var(--spacing-8)">' + esc(s.title) + "</h1>" +
+    (R.tagsOf(s).length ? '<div class="study-tags detail-tags" role="group" aria-label="해시태그">' + R.tagsOf(s).map((t) => '<button type="button" class="tag tag-btn" data-tagjump="' + esc(t) + '" aria-label="' + hashText(t) + ' 태그로 목록에서 찾기">' + hashText(t) + "</button>").join("") + "</div>" : "") +
     "<p>" + metaLine(s) + (dateLine(s) ? " · " + dateLine(s) : "") + " · 모집자 " + (leader ? esc(leader.name) + "(" + R.ROLE_LABEL[leader.role] + ")" : "알 수 없음") + "</p>" +
     '<div class="goal-box t-body2"><b>목표</b> ' + esc(s.goal) + "</div>" + canceledNote + "</header>" +
     '<div class="two">' + membersBox + '<div class="stack">' + side + "</div></div>";
@@ -753,6 +781,11 @@ document.addEventListener("click", (e) => {
   try {
     if (b.dataset.act === "reload") { boot(); return; }
     if (b.dataset.act === "open-me") { openPanel(); return; }
+
+    // 목록의 해시태그(카드·내 해시태그 칩): 검색어에 넣거나 빼요. 카드 태그는 다시 그려지니까 검색창으로 포커스를 옮겨요
+    if (b.dataset.tagq !== undefined) { setQuery(R.toggleTagInQuery(filter.q, b.dataset.tagq), !!b.closest(".study")); return; }
+    // 상세의 해시태그: 목록으로 가서 그 태그로 찾아요
+    if (b.dataset.tagjump !== undefined) { filter.q = "#" + b.dataset.tagjump; location.hash = "#/"; return; }
 
     // 해시태그 입력칸의 칩 빼기·많이 쓰는 태그 더하기 (칩 줄만 다시 그려요)
     if (b.dataset.tagdel !== undefined) { removeTagAt(b.closest("[data-tagfield]"), Number(b.dataset.tagdel)); return; }
