@@ -1,5 +1,6 @@
 // 공지용 스터디 모집 규칙. 화면(recruit.js)·서버 함수(api/_lib/recruit.js)·테스트가 같이 써요.
-// 구성원이 구글로 로그인해 스터디를 열고(요일·목표, 원하면 권장 주제) → 다른 사람이 신청하고 → 모집자가 수락하면 함께해요.
+// 구성원이 구글로 로그인해 스터디를 열고(이름·요일·목표) → 다른 사람이 신청하고 → 모집자가 수락하면 함께해요.
+// 주제는 따로 고르지 않고 스터디 이름에 적어요.
 
 export const ROLES = [
   { key: "dev", label: "개발" },
@@ -9,17 +10,6 @@ export const ROLES = [
 ];
 export const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.key, r.label]));
 
-// 영희 강사님 추천 10월 파이썬 스터디 권장 주제. 고르지 않아도 돼요(그때는 스터디 이름이 곧 주제예요).
-export const TOPICS = [
-  { key: "t1", label: "주제1 · 파이썬 기본 문법과 자료구조" },
-  { key: "t2", label: "주제2 · 함수와 모듈, 개발 환경" },
-  { key: "t3", label: "주제3 · NumPy 기초" },
-  { key: "t4", label: "주제4 · pandas로 데이터 다루기" },
-  { key: "t5", label: "주제5 · 외부 API 호출" },
-  { key: "t6", label: "주제6 · Streamlit으로 화면 만들기" },
-  { key: "t7", label: "주제7 · Flask로 웹 서버 만들기" },
-];
-export const TOPIC_LABEL = Object.fromEntries(TOPICS.map((t) => [t.key, t.label]));
 export const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
 export const MODES = ["ZEP 온라인", "오프라인"];
 export const MAX_CAPACITY = 6; // 공지: 6명 이내 권장
@@ -27,7 +17,6 @@ export const MAX_CAPACITY = 6; // 공지: 6명 이내 권장
 // 스터디 등록 입력 검사: 틀린 칸마다 이유를 돌려줘요
 export function validateStudy(s) {
   const e = {};
-  if (s.topic && !TOPIC_LABEL[s.topic]) e.topic = "권장 주제는 목록에서 골라 주세요.";
   const title = String(s.title || "").trim();
   if (title.length < 2 || title.length > 40) e.title = "스터디 이름을 2~40자로 적어 주세요.";
   // 주 횟수는 따로 받지 않고 고른 요일 수로 정해요

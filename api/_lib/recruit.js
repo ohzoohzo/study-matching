@@ -55,7 +55,7 @@ export async function createStudy(store, user, body) {
   const state = await store.load();
   needPerson(state, user);
   const days = Array.isArray(body.days) ? body.days.map(String) : [];
-  const s = { topic: text(body.topic), title: text(body.title).trim(), days, mode: text(body.mode), capacity: Number(body.capacity), goal: text(body.goal).trim() };
+  const s = { title: text(body.title).trim(), days, mode: text(body.mode), capacity: Number(body.capacity), goal: text(body.goal).trim() };
   invalid(R.validateStudy(s), "입력한 내용을 확인해 주세요.");
   const study = { id: await store.nextId("s"), ...s, days: R.DAYS.filter((d) => days.includes(d)), leaderId: user.id, closed: false, createdAt: kstMinute() };
   await store.put("studies", study);

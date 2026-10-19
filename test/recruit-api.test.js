@@ -95,6 +95,7 @@ test("한 사람이 연 스터디가 다른 사람 목록에 보여요", async (
   assert.equal(r.body.study.leaderId, "me-g111");
   assert.deepEqual(r.body.study.days, ["화", "목"]); // 요일 순서로 정리해요
   assert.equal(r.body.study.closed, false);
+  assert.ok(!("topic" in r.body.study)); // 권장 주제는 받지 않아요 (보내도 버려요)
   assert.match(r.body.study.createdAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d$/);
   const seen = await call(stateApi, "GET"); // 로그인 안 한 사람도 목록은 봐요
   assert.equal(seen.status, 200);

@@ -98,8 +98,6 @@ const person = (id) => (S ? S.people.find((p) => p.id === id) : undefined);
 const study = (id) => S.studies.find((s) => s.id === id);
 const me = () => { const a = account(); return a ? person("me-g" + a.sub) || null : null; };
 const STATUS = { pending: "대기", accepted: "수락", rejected: "거절" };
-const topicShort = (k) => (R.TOPIC_LABEL[k] || "").split(" · ")[0];
-const topicTag = (s) => (s.topic ? '<span class="tag tag-brand">' + esc(R.TOPIC_LABEL[s.topic]) + "</span>" : "");
 const ICON = {
   add: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>',
   back: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>',
@@ -262,7 +260,7 @@ function seatsBar(s) {
 function studyCard(s) {
   const leader = person(s.leaderId);
   return '<li><a class="card study" href="#/s/' + encodeURIComponent(s.id) + '">' +
-    '<div class="tags">' + topicTag(s) + statusTag(s) + "</div>" +
+    '<div class="tags">' + statusTag(s) + "</div>" +
     '<h3 class="t-headline1">' + esc(s.title) + "</h3>" +
     '<p class="goal t-body2">' + esc(s.goal) + "</p>" +
     '<div class="meta t-caption1">' + metaLine(s) + "</div>" +
@@ -274,19 +272,16 @@ function studyCard(s) {
 const syncBtn = (label) => '<button type="button" class="btn btn-outline btn-sm" data-act="sync">' + ICON.refresh + esc(label) + "</button>";
 
 // ---------- 스터디 목록 ----------
-let filter = { topic: "all", openOnly: false, needMine: false };
+let filter = { openOnly: false, needMine: false };
 
 function viewList() {
   const m = me();
   if (!m) filter.needMine = false;
   let list = R.sortStudies(S.studies, S.apps, S.people);
-  if (filter.topic !== "all") list = list.filter((s) => s.topic === filter.topic);
   if (filter.openOnly) list = list.filter((s) => R.isOpen(s, S.apps, S.people));
   if (filter.needMine && m) list = list.filter((s) => R.roleMix(s, S.apps, S.people).missing.includes(m.role));
-  const any = filter.topic !== "all" || filter.openOnly || filter.needMine;
+  const any = filter.openOnly || filter.needMine;
 
-  const topicChips = '<button type="button" class="chip" data-filter="topic" data-val="all" aria-pressed="' + (filter.topic === "all") + '">전체</button>' +
-    R.TOPICS.map((t) => '<button type="button" class="chip" data-filter="topic" data-val="' + t.key + '" aria-pressed="' + (filter.topic === t.key) + '">' + esc(t.label) + "</button>").join("");
   const toggles = '<button type="button" class="chip" data-toggle="openOnly" aria-pressed="' + filter.openOnly + '">' + ICON.check + "모집 중만</button>" +
     '<button type="button" class="chip" data-toggle="needMine" aria-pressed="' + filter.needMine + '"' + (m ? "" : ' disabled aria-describedby="needMineHint"') + ">" + ICON.check + "내 직군이 비어 있는 스터디" + (m ? " (" + R.ROLE_LABEL[m.role] + ")" : "") + "</button>" +
     (m ? "" : '<span id="needMineHint" class="t-caption1 note">로그인하면 쓸 수 있어요.</span>');
@@ -296,16 +291,15 @@ function viewList() {
       '<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)">' + (any ? '<button type="button" class="btn btn-outline btn-sm" data-act="clear-filters">필터 지우기</button>' : "") +
       '<a class="btn btn-primary btn-sm" href="#/new">' + ICON.add + "스터디 열기</a></div></div>";
 
-  return '<header class="page-head head-row"><div><h1 class="t-title1">함께할 스터디를 찾아요</h1><p>주제·요일·목표를 보고 신청하거나, 직접 스터디를 열어 함께할 사람을 모아요. 6명 이내를 권장해요.</p></div>' +
+  return '<header class="page-head head-row"><div><h1 class="t-title1">함께할 스터디를 찾아요</h1><p>스터디 이름·요일·목표를 보고 신청하거나, 직접 스터디를 열어 함께할 사람을 모아요. 6명 이내를 권장해요.</p></div>' +
     '<a class="btn btn-primary" href="#/new">' + ICON.add + "스터디 열기</a></header>" +
     '<section aria-labelledby="list-title"><h2 id="list-title" class="sr">스터디 목록</h2>' +
-    '<div class="filters"><div class="row" role="group" aria-labelledby="f-topic-l"><span class="label t-label1" id="f-topic-l">권장 주제</span>' + topicChips + "</div>" +
-    '<div class="row" role="group" aria-labelledby="f-view-l"><span class="label t-label1" id="f-view-l">보기</span>' + toggles + "</div></div>" +
+    '<div class="filters"><div class="row" role="group" aria-labelledby="f-view-l"><span class="label t-label1" id="f-view-l">보기</span>' + toggles + "</div></div>" +
     '<div class="count-row"><p class="count t-label1" aria-live="polite">' + list.length + "개 스터디" + (any ? " (필터 적용)" : "") + "</p>" + syncBtn("목록 새로 고침") + "</div>" + body + "</section>";
 }
 
 // ---------- 스터디 열기 ----------
-const emptyDraft = () => ({ topic: "", title: "", days: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "" });
+const emptyDraft = () => ({ title: "", days: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "" });
 let draft = emptyDraft();
 let derrors = {};
 
@@ -319,10 +313,7 @@ function viewNew() {
   return '<header class="page-head"><a class="more t-label1" href="#/">' + ICON.back + '목록으로</a><h1 class="t-title1" style="margin-top:var(--spacing-8)">스터디 열기</h1><p>스터디 이름, 요일, 간단 목표를 적으면 다른 사람이 보고 신청해요.</p></header>' +
     profileBox +
     '<form class="form" id="studyForm" novalidate>' +
-    '<div class="field" role="group" aria-labelledby="l-topic"' + gdesc("topic") + '><span class="label" id="l-topic">권장 주제 (선택)</span><div class="chips">' +
-      R.TOPICS.map((t) => '<button type="button" class="chip" data-pick="topic" data-val="' + t.key + '" aria-pressed="' + (draft.topic === t.key) + '">' + esc(t.label) + "</button>").join("") +
-      '</div><p class="hint t-caption1" id="hint-topic">강사님이 추천한 10월 파이썬 주제예요. 다른 주제면 고르지 않고 스터디 이름에 적어요. 한 번 더 누르면 풀려요.</p>' + err("topic") + "</div>" +
-    '<div class="field"><label for="f-title">스터디 이름</label><input id="f-title" class="text" data-d="title" maxlength="40" value="' + esc(draft.title) + '"' + desc("title") + '><p class="hint t-caption1" id="hint-title">2~40자. 예: pandas로 CSV 분석해 보기</p>' + err("title") + "</div>" +
+    '<div class="field"><label for="f-title">스터디 이름</label><input id="f-title" class="text" data-d="title" maxlength="40" value="' + esc(draft.title) + '"' + desc("title") + '><p class="hint t-caption1" id="hint-title">2~40자. 무엇을 공부하는지 이름에 담아요. 예: pandas로 CSV 분석해 보기</p>' + err("title") + "</div>" +
     '<div class="field" role="group" aria-labelledby="l-days"' + gdesc("days") + '><span class="label" id="l-days">진행 요일</span><div class="chips">' +
       R.DAYS.map((d) => '<button type="button" class="chip" data-pick="days" data-val="' + d + '" aria-pressed="' + draft.days.includes(d) + '">' + d + "</button>").join("") +
       '</div><p class="hint t-caption1" id="hint-days"><span id="perWeekLive" aria-live="polite">' + perWeekText(draft.days.length) + "</span> 10/19부터 진행해요.</p>" + err("days") + "</div>" +
@@ -394,7 +385,7 @@ function viewDetail(id) {
   if (!open) side += nextSteps(s);
 
   return '<header class="page-head"><a class="more t-label1" href="#/">' + ICON.back + '목록으로</a>' +
-    '<div class="actions" style="margin-top:var(--spacing-12)">' + topicTag(s) + statusTag(s) + "</div>" +
+    '<div class="actions" style="margin-top:var(--spacing-12)">' + statusTag(s) + "</div>" +
     '<h1 class="t-title1" style="margin-top:var(--spacing-8)">' + esc(s.title) + "</h1>" +
     "<p>" + metaLine(s) + " · 모집자 " + (leader ? esc(leader.name) + "(" + R.ROLE_LABEL[leader.role] + ")" : "알 수 없음") + "</p>" +
     '<div class="goal-box t-body2"><b>목표</b> ' + esc(s.goal) + "</div></header>" +
@@ -413,13 +404,13 @@ function viewMy() {
   const openedBox = '<section class="sec" aria-labelledby="opened-title"><div class="sec-head"><h2 id="opened-title" class="t-title3">내가 연 스터디</h2><a class="btn btn-primary btn-sm" href="#/new">' + ICON.add + "스터디 열기</a></div>" +
     (opened.length ? '<ul class="rows card">' + opened.map((s) => {
       const pend = S.apps.filter((a) => a.studyId === s.id && a.status === "pending").length;
-      return '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + '</a><small>' + (s.topic ? esc(topicShort(s.topic)) + " · " : "") + metaLine(s) + " · " + R.members(s, S.apps, S.people).length + "/" + s.capacity + "명</small></div>" +
+      return '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + '</a><small>' + metaLine(s) + " · " + R.members(s, S.apps, S.people).length + "/" + s.capacity + "명</small></div>" +
         '<div class="actions">' + (pend ? '<span class="tag tag-brand" style="font-weight:600">대기 ' + pend + "명</span>" : "") + statusTag(s) + "</div></li>";
     }).join("") + "</ul>"
       : '<div class="empty">아직 연 스터디가 없어요.<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)"><a class="btn btn-primary btn-sm" href="#/new">스터디 열기</a></div></div>') + "</section>";
 
   const appliedBox = '<section class="sec" aria-labelledby="applied-title" style="padding-top:0"><div class="sec-head"><h2 id="applied-title" class="t-title3">신청한 스터디</h2></div>' +
-    (applied.length ? '<ul class="rows card">' + applied.map(({ s, a }) => '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + "</a><small>" + (s.topic ? esc(topicShort(s.topic)) + " · " : "") + metaLine(s) + "</small></div>" +
+    (applied.length ? '<ul class="rows card">' + applied.map(({ s, a }) => '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + "</a><small>" + metaLine(s) + "</small></div>" +
       '<div class="actions"><span class="tag status-' + a.status + '">' + STATUS[a.status] + "</span></div></li>").join("") + "</ul>"
       : '<div class="empty">아직 신청한 스터디가 없어요.<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)"><a class="btn btn-outline btn-sm" href="#/">스터디 둘러보기</a></div></div>') + "</section>";
 
@@ -490,15 +481,13 @@ document.addEventListener("click", (e) => {
         const live = document.getElementById("perWeekLive"); if (live) live.textContent = perWeekText(draft.days.length);
         return;
       }
-      if (g === "topic" && draft.topic === v) { draft.topic = ""; b.setAttribute("aria-pressed", "false"); return; } // 주제는 고르지 않아도 돼요
       if (g === "prole") pdraft.role = v; else draft[g] = v;
       box.querySelectorAll("[data-pick]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
       return;
     }
 
-    if (b.dataset.filter === "topic") { filter.topic = b.dataset.val; rerender('[data-filter="topic"][data-val="' + b.dataset.val + '"]'); return; }
     if (b.dataset.toggle) { filter[b.dataset.toggle] = !filter[b.dataset.toggle]; rerender('[data-toggle="' + b.dataset.toggle + '"]'); return; }
-    if (b.dataset.act === "clear-filters") { filter = { topic: "all", openOnly: false, needMine: false }; rerender('[data-filter="topic"][data-val="all"]'); toast("필터를 지웠어요."); return; }
+    if (b.dataset.act === "clear-filters") { filter = { openOnly: false, needMine: false }; rerender('[data-toggle="openOnly"]'); toast("필터를 지웠어요."); return; }
 
     if (b.dataset.act === "sync") {
       run(b, "불러오는 중…", async () => {
@@ -577,7 +566,7 @@ document.addEventListener("submit", (e) => {
     }
     if (f.id === "studyForm") {
       const m = me();
-      const s = { topic: draft.topic, title: String(draft.title).trim(), days: R.DAYS.filter((d) => draft.days.includes(d)), mode: draft.mode, capacity: Number(draft.capacity), goal: String(draft.goal).trim() };
+      const s = { title: String(draft.title).trim(), days: R.DAYS.filter((d) => draft.days.includes(d)), mode: draft.mode, capacity: Number(draft.capacity), goal: String(draft.goal).trim() };
       derrors = R.validateStudy(s);
       if (Object.keys(derrors).length) { rerender(); toast("입력한 내용을 확인해 주세요."); focusFirstError(document.getElementById("studyForm")); return; }
       if (!m) { toast(account() ? "먼저 이름과 직군을 저장해 주세요." : "먼저 구글로 로그인해 주세요."); const g = app.querySelector("#pf-title"); if (g) g.scrollIntoView({ block: "center" }); return; }
