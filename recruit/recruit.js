@@ -95,6 +95,7 @@ async function boot() {
   renderMe();
   route();
   loadNotes();
+  if (me() && canPush() && Notification.permission === "granted") checkPush(); // 이 기기 구독을 서버와 맞춰요
 }
 
 // ---------- 도우미 ----------
@@ -286,9 +287,51 @@ let pushState = "";
 let pushKey = null; // 서버가 준 VAPID 공개키 ("": 알림 꺼진 서버)
 const canPush = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+const ANDROID = /Android/.test(navigator.userAgent);
+const MAC = !IOS && /Macintosh|Mac OS X/.test(navigator.userAgent);
+const WINDOWS = /Windows/.test(navigator.userAgent);
+// 도착은 했는데 알림 창이 안 보일 때 확인할 곳 (기기마다 달라요)
+const SHOW_HINT = ANDROID ? "휴대폰 설정 → 애플리케이션 → Chrome → 알림, 그리고 크롬 → 설정 → 사이트 설정 → 알림을 확인해 주세요."
+  : MAC ? "맥의 시스템 설정 → 알림 → Google Chrome(또는 쓰는 브라우저)에서 알림 허용을 켜고, 집중 모드(방해 금지)를 꺼 주세요."
+    : WINDOWS ? "윈도우 설정 → 시스템 → 알림에서 Chrome(또는 쓰는 브라우저) 알림을 켜고, 방해 금지 모드를 꺼 주세요."
+      : "운영체제 알림 설정에서 이 브라우저의 알림이 켜져 있는지 확인해 주세요.";
+// 도착하지 않을 때 확인할 곳
+const ARRIVE_HINT = ANDROID ? "절전 모드, 데이터 절약, 크롬 앱의 배터리 사용 제한을 확인해 주세요."
+  : "브라우저가 실행 중인지(창은 닫아도 돼요), 인터넷 연결과 회사·학교 방화벽을 확인해 주세요.";
 async function pushSub() {
   const reg = await navigator.serviceWorker.getRegistration("/");
+  if (reg) reg.update().catch(() => {}); // 새 sw.js가 있으면 받아 와요
   return reg ? reg.pushManager.getSubscription() : null;
+}
+// 테스트 알림: 서버 → 푸시 서버 → 이 기기 중 어디서 끊기는지 보여 줘요
+// pushTest: { started, tail(이 기기 구독 주소 끝 8자), results(서버가 준 기기별 결과), arrived(null 기다림 · false 안 옴 · { secs, error } 도착) }
+let pushTest = null;
+const PUSH_HOST = { "fcm.googleapis.com": "구글(크롬)", "push.services.mozilla.com": "모질라(파이어폭스)", "push.apple.com": "애플", "notify.windows.com": "마이크로소프트(엣지)" };
+const pushHostName = (h) => { const k = Object.keys(PUSH_HOST).find((x) => h === x || h.endsWith("." + x)); return k ? PUSH_HOST[k] : h; };
+function refreshPushBox() { const box = document.getElementById("pushBox"); if (box) box.outerHTML = pushBox(); }
+function pushTestView() {
+  if (!pushTest) return "";
+  const t = pushTest, lines = [];
+  if (!t.results) lines.push("테스트 알림을 보내고 있어요.");
+  else if (!t.results.length) lines.push("서버에 이 계정의 알림 기기가 없어요. ‘이 기기 알림 끄기’를 누른 뒤 다시 켜 주세요.");
+  else t.results.forEach((r) => lines.push((r.tail === t.tail ? "이 기기" : "다른 기기") + " · " + pushHostName(r.host) + ": " +
+    (r.ok ? "푸시 서버가 받았어요(" + (r.status || "OK") + ")" : "푸시 서버가 거절했어요(" + (r.status || "오류") + ") " + r.error)));
+  if (t.results && t.results.length && !t.results.some((r) => r.tail === t.tail)) lines.push("이 기기의 구독이 서버에 없어요. ‘이 기기 알림 끄기’를 누른 뒤 다시 켜 주세요.");
+  if (t.results && t.results.some((r) => r.ok && r.tail === t.tail)) {
+    if (t.arrived === null) lines.push("이 기기에 도착하기를 기다리고 있어요(최대 15초).");
+    else if (t.arrived === false) lines.push("15초 안에 이 기기에 도착하지 않았어요. 푸시 서버에서 이 기기로 오는 길에서 막혀요. " + ARRIVE_HINT);
+    else lines.push("이 기기에 " + t.arrived.secs + "초 만에 도착했어요. " + (t.arrived.error ? "그런데 알림을 띄우지 못했어요: " + t.arrived.error
+      : "알림 창이 안 보였다면 " + SHOW_HINT));
+  }
+  return '<ul class="push-test t-caption1">' + lines.map((l) => "<li>" + esc(l) + "</li>").join("") + "</ul>";
+}
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    const d = e.data || {};
+    if (d.type !== "push-received" || !d.test || !pushTest || pushTest.arrived) return;
+    pushTest.arrived = { secs: ((Date.now() - pushTest.started) / 1000).toFixed(1), error: d.error || "" };
+    refreshPushBox();
+  });
 }
 async function checkPush() {
   if (!canPush()) pushState = "unsupported";
@@ -297,7 +340,17 @@ async function checkPush() {
       if (pushKey === null) { const d = await api("GET", "push"); pushKey = d && d.enabled ? d.publicKey : ""; }
       if (!pushKey) pushState = "off";
       else if (Notification.permission === "denied") pushState = "denied";
-      else pushState = (await pushSub()) ? "on" : "ready";
+      else {
+        const sub = await pushSub();
+        if (!sub) pushState = "ready";
+        else if (!me()) pushState = "on";
+        else {
+          // 이 브라우저에 구독이 있어도 서버에 없을 수 있어요(켤 때 로그인이 만료됐거나, 브라우저가 구독을 바꾼 경우).
+          // 그래서 볼 때마다 서버에 다시 저장해서 맞춰요. 서버는 같은 기기를 한 번만 저장해요.
+          try { await api("POST", "push", { subscription: sub.toJSON() }); pushState = "on"; }
+          catch (e) { pushState = "unsynced"; }
+        }
+      }
     } catch (e) { pushState = "error"; }
   }
   const box = document.getElementById("pushBox");
@@ -316,7 +369,10 @@ function pushBox() {
     off: ["알림은 아직 준비 중이에요.", ""],
     error: ["알림 설정을 확인하지 못했어요.", btn("push-check", "다시 확인")],
     denied: ["브라우저 설정에서 이 사이트 알림이 막혀 있어요. 설정에서 허용한 뒤 다시 확인해 주세요.", btn("push-check", "다시 확인")],
-    on: ["이 기기에서 새 신청·수락 같은 소식을 알림으로 받고 있어요.", btn("push-off", "이 기기 알림 끄기")],
+    unsynced: ["이 기기 알림 설정을 서버에 저장하지 못했어요. 그래서 이 기기로는 알림이 가지 않아요.", btn("push-check", "다시 저장")],
+    on: ["이 기기에서 새 신청·수락 같은 소식을 알림으로 받고 있어요. 알림이 안 오면 테스트 알림으로 어디서 막히는지 볼 수 있어요.",
+      '<div class="actions"><button type="button" class="btn btn-outline btn-sm" data-act="push-test">' + ICON.bell + "테스트 알림 보내기</button>" +
+      '<button type="button" class="btn btn-outline btn-sm" data-act="push-off">이 기기 알림 끄기</button></div>' + pushTestView()],
     ready: ["새 신청이나 수락·거절 소식을 사이트를 닫아 둬도 이 기기 알림으로 받아요.", btn("push-on", ICON.bell + "이 기기에서 알림 받기", "btn-primary")],
   }[pushState] || ["", ""];
   return '<div id="pushBox" class="push-box" aria-live="polite"><span class="t-label1" style="font-weight:600">알림</span><p class="note t-caption1">' + text + "</p>" + action + "</div>";
@@ -913,6 +969,19 @@ document.addEventListener("click", (e) => {
         await api("POST", "push", { subscription: sub.toJSON() });
         await checkPush();
         toast("이 기기에서 알림을 받아요.");
+      });
+      return;
+    }
+    if (b.dataset.act === "push-test") {
+      run(b, "보내는 중…", async () => {
+        const mine = await pushSub();
+        pushTest = { started: Date.now(), tail: mine ? mine.endpoint.slice(-8) : "", results: null, arrived: null };
+        refreshPushBox();
+        try { pushTest.results = (await api("POST", "push", { test: true })).results; }
+        catch (err) { pushTest = null; refreshPushBox(); throw err; }
+        refreshPushBox();
+        const mark = pushTest;
+        setTimeout(() => { if (pushTest === mark && pushTest.arrived === null) { pushTest.arrived = false; refreshPushBox(); } }, 15000);
       });
       return;
     }

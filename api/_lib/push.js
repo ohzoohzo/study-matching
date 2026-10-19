@@ -57,28 +57,46 @@ export function unsubscribe(store, user, body) {
 }
 
 // 알림 보내기: 받는 사람의 기기마다 보내요. 사라진 구독(404·410)은 지우고, 다른 실패는 기록만 하고 넘어가요.
+// 기기마다 결과({ personId, host, tail, ok, status, error })를 돌려주고 로그에도 남겨요(원인을 찾을 때 봐요). 주소 전체는 남기지 않아요.
 // 스터디 잠금이 풀린 뒤에 불러요(잠금 안에서 부르면 기다림이 길어져요).
 export async function sendPush(store, push, messages) {
-  if (!push || !messages || !messages.length) return { sent: 0 };
-  let sent = 0;
+  if (!push || !messages || !messages.length) return { sent: 0, results: [] };
+  const results = [];
   await Promise.all(messages.map(async (m) => {
     try {
       const subs = await store.getSubs(m.personId);
       if (!subs.length) return;
-      const payload = JSON.stringify({ title: m.title, body: m.body, url: m.url });
+      const payload = JSON.stringify({ title: m.title, body: m.body, url: m.url, tag: m.tag, test: m.test });
       const gone = [];
-      await Promise.all(subs.map(async (s) => {
-        try { await push.send(s, payload); sent += 1; }
-        catch (e) {
-          if (e && (e.statusCode === 404 || e.statusCode === 410)) gone.push(s.endpoint);
-          else console.error("push failed", e && e.statusCode, e && e.message);
+      const done = await Promise.all(subs.map(async (s) => {
+        const host = new URL(s.endpoint).hostname, tail = s.endpoint.slice(-8);
+        try {
+          const res = await push.send(s, payload);
+          const status = (res && res.statusCode) || null;
+          console.log("push sent", status, host);
+          return { personId: m.personId, host, tail, ok: true, status, error: "" };
+        } catch (e) {
+          const status = (e && e.statusCode) || null;
+          if (status === 404 || status === 410) gone.push(s.endpoint);
+          console.error("push failed", status, host, e && (e.body || e.message));
+          return { personId: m.personId, host, tail, ok: false, status, error: String((e && (e.body || e.message)) || "").slice(0, 200) };
         }
       }));
+      results.push(...done);
       if (gone.length) {
         await store.withLock("subs:" + m.personId, async () =>
           store.setSubs(m.personId, (await store.getSubs(m.personId)).filter((s) => !gone.includes(s.endpoint))));
       }
     } catch (e) { console.error("push failed", e && e.message); }
   }));
-  return { sent };
+  return { sent: results.filter((r) => r.ok).length, results };
+}
+
+// 테스트 알림: 로그인한 내 기기들로 지금 보내고 기기마다 결과를 돌려줘요. 알림함에는 쌓지 않아요.
+// 진짜 알림과 같은 보내기 경로(sendPush)를 써서, 어디서 끊기는지(서버→푸시 서버→기기) 가를 수 있어요.
+export async function testPush(store, push, user) {
+  needPush(push);
+  const msg = { personId: user.id, title: "테스트 알림", body: "이 기기로 알림이 잘 와요. 누르면 사이트가 열려요.", url: "/#/", tag: "test-" + Date.now(), test: true };
+  const { results } = await sendPush(store, push, [msg]);
+  return { results: results.map(({ host, tail, ok, status, error }) => ({ host, tail, ok, status, error })) };
 }
