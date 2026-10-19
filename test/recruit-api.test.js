@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { handler } from "../api/_lib/http.js";
 import { memoryStore } from "../api/_lib/store.js";
 import { GOOGLE_CLIENT_ID, makeVerifier } from "../api/_lib/auth.js";
+import { kstToday } from "../recruit/recruit-logic.js";
 import * as stateApi from "../api/recruit/state.js";
 import * as meApi from "../api/recruit/me.js";
 import * as studiesApi from "../api/recruit/studies.js";
@@ -25,7 +26,7 @@ async function fakeVerify(token) {
 
 function setup() {
   const deps = { store: memoryStore(), verify: fakeVerify };
-  return async function call(mod, method, { token, body, query } = {}) {
+  const call = async function (mod, method, { token, body, query } = {}) {
     const req = { method, headers: token ? { authorization: "Bearer " + token } : {}, body, query: query || {} };
     const res = {
       statusCode: 200, headers: {}, data: "",
@@ -35,6 +36,8 @@ function setup() {
     await handler(mod.methods, deps)(req, res);
     return { status: res.statusCode, body: JSON.parse(res.data), headers: res.headers };
   };
+  call.store = deps.store; // 날짜가 지난 상황처럼 저장소를 직접 바꿀 때만 써요
+  return call;
 }
 
 const study = { topic: "t4", title: "pandas로 CSV 분석해 보기", days: ["목", "화"], mode: "ZEP 온라인", capacity: 3, goal: "CSV를 읽어 필터·정렬·집계까지 해 보기" };
@@ -380,4 +383,43 @@ test("신청 시간대가 목록에 없거나 요일에 맞지 않으면 400이�
   r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id, times: "평일 밤" } });
   assert.equal(r.status, 400);
   assert.deepEqual((await call(stateApi, "GET")).body.apps, []);
+});
+
+const later = (n) => kstToday(Date.now() + n * 86400000); // 한국 날짜로 n일 뒤
+
+test("스터디 일정(모집 마감일·시작일·종료일)은 선택이고, 틀리면 400이에요", async () => {
+  const call = setup();
+  await withPeople(call);
+  let r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, deadline: later(3), startDate: later(5), endDate: later(40) } });
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.body.study.deadline, r.body.study.startDate, r.body.study.endDate], [later(3), later(5), later(40)]);
+  r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, deadline: "", startDate: "" } });
+  assert.deepEqual([r.body.study.deadline, r.body.study.startDate, r.body.study.endDate], [null, null, null]);
+  r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, deadline: later(-1) } });
+  assert.equal(r.status, 400);
+  assert.match(r.body.fields.deadline, /오늘/);
+  r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, startDate: later(10), endDate: later(5) } });
+  assert.equal(r.status, 400);
+  assert.match(r.body.fields.endDate, /시작일/);
+  r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, deadline: "내일" } });
+  assert.equal(r.status, 400);
+  assert.match(r.body.fields.deadline, /날짜/);
+});
+
+test("모집 마감일이 지난 스터디는 신청을 409로 막고, 모집자가 다시 열면 지난 마감일이 지워져요", async () => {
+  const call = setup();
+  await withPeople(call);
+  const s = (await call(studiesApi, "POST", { token: "tokA", body: { ...study, deadline: later(2) } })).body.study;
+  await call.store.put("studies", { ...s, deadline: later(-1) }); // 마감일이 지난 것처럼
+  let r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /마감일/);
+  r = await call(studyApi, "PATCH", { token: "tokB", query: { id: s.id }, body: { closed: false } });
+  assert.equal(r.status, 403);
+  r = await call(studyApi, "PATCH", { token: "tokA", query: { id: s.id }, body: { closed: false } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.study.deadline, null);
+  assert.equal(r.body.study.closed, false);
+  r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } });
+  assert.equal(r.status, 201);
 });

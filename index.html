@@ -57,6 +57,9 @@
   .missing { margin: 0; color: var(--brand-fg); font-weight: 600; }
   .overlap { display: grid; gap: var(--spacing-6); margin: var(--spacing-4) 0 var(--spacing-12); padding: var(--spacing-12); border-radius: var(--radius-12); background: var(--bg-2); }
   .overlap .note { margin: 0; }
+  .dates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--spacing-12); }
+  .dates .field > label { margin-bottom: var(--spacing-6); color: var(--fg-2); }
+  .dates .text { min-width: 0; }
   .missing.done { color: var(--fg-3); font-weight: 400; }
   .status-open { background: var(--semantic-surface-positive-primary); color: var(--semantic-foreground-positive-primary); font-weight: 600; }
   .status-pending { background: var(--semantic-surface-cautionary-primary); color: var(--semantic-foreground-cautionary-primary); }
@@ -124,6 +127,7 @@
     .me { margin-left: auto; position: static; }
     .me-btn { max-width: 180px; }
     .filters .row > .label { width: 100%; }
+    .dates { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
 </style>
