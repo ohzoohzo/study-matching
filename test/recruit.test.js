@@ -447,3 +447,29 @@ test("알림함: 고른 알림이나 모두를 읽음으로 바꾸고, 안 읽�
   assert.equal(R.unreadCount(list), 0);
   assert.deepEqual(R.unreadFor(list, "s2"), []);
 });
+
+// ---------- 활기 숫자 (목록 위 숫자 칸) ----------
+test("활기 숫자: 가입한 사람과 직군별 인원, 모집 중인 스터디 수를 세요", () => {
+  const st = R.activityStats(seed.studies, seed.apps, seed.people, "2026-10-19");
+  assert.equal(st.people, 7);
+  assert.deepEqual(st.roles, { dev: 2, design: 2, po: 2, marketing: 1 });
+  assert.equal(st.openStudies, 3); // s4는 마감
+});
+
+test("활기 숫자: 스터디에 함께하는 사람은 모집자와 수락된 사람을 한 번씩만 세고, 취소한 스터디는 빼요", () => {
+  assert.equal(R.activityStats(seed.studies, seed.apps, seed.people, "2026-10-19").members, 7);
+  const studies = seed.studies.map((s) => (s.id === "s4" ? R.cancelStudy(s, "p3", "2026-10-19T18:00") : s));
+  const apps = seed.apps.concat({ id: "w1", studyId: "s1", personId: "p6", status: "pending" }, { id: "w2", studyId: "s3", personId: "p4", status: "left" });
+  assert.equal(R.activityStats(studies, apps, seed.people, "2026-10-19").members, 6); // p6은 대기라 빼요
+});
+
+test("활기 숫자: 최근 7일(오늘 포함) 새로 열린 스터디를 세요 (취소한 스터디는 빼요)", () => {
+  assert.equal(R.activityStats(seed.studies, seed.apps, seed.people, "2026-10-19").newThisWeek, 4); // 10/13~10/19
+  assert.equal(R.activityStats(seed.studies, seed.apps, seed.people, "2026-10-22").newThisWeek, 2); // 10/16~10/22
+  const studies = seed.studies.map((s) => (s.id === "s1" ? R.cancelStudy(s, "p5", "2026-10-19T18:00") : s));
+  assert.equal(R.activityStats(studies, seed.apps, seed.people, "2026-10-22").newThisWeek, 1);
+});
+
+test("활기 숫자: 아무도 없으면 모두 0이에요", () => {
+  assert.deepEqual(R.activityStats([], [], [], "2026-10-19"), { people: 0, roles: { dev: 0, design: 0, po: 0, marketing: 0 }, openStudies: 0, members: 0, newThisWeek: 0 });
+});
