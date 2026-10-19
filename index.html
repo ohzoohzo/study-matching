@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>스터디 매칭</title>
+<script>
+  try { if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.dataset.theme = 'dark'; } catch (e) {}
+</script>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .hero { padding: var(--spacing-56) 0 var(--spacing-32); }
+  .hero h1 { margin: 0 0 var(--spacing-8); }
+  .hero p { margin: 0 0 var(--spacing-24); color: var(--fg-2); }
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-8) var(--spacing-16); padding: var(--spacing-16) 0; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+  .filters .sep { width: 1px; height: 24px; background: var(--line); }
+  .result { display: flex; justify-content: space-between; align-items: center; margin: var(--spacing-24) 0 var(--spacing-16); color: var(--fg-3); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-16); margin: 0; padding: 0; list-style: none; }
+  .study { display: flex; flex-direction: column; gap: var(--spacing-8); height: 100%; }
+  .study .top { display: flex; justify-content: space-between; align-items: center; gap: var(--spacing-8); }
+  .study h3 { margin: 0; }
+  .study p { margin: 0; color: var(--fg-2); }
+  .meta { display: flex; flex-wrap: wrap; gap: var(--spacing-4) var(--spacing-12); color: var(--fg-3); }
+  .meta span { display: inline-flex; align-items: center; gap: var(--spacing-4); }
+  .meta .mi { width: 16px; height: 16px; }
+  .seats { margin-top: auto; padding-top: var(--spacing-12); border-top: 1px solid var(--line-soft); }
+  .seats .row { display: flex; justify-content: space-between; margin-bottom: var(--spacing-6); color: var(--fg-2); }
+  .bar { height: 6px; border-radius: var(--radius-full); background: var(--semantic-surface-neutral-secondary); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: inherit; background: var(--brand); }
+  .empty-actions { display: flex; justify-content: center; gap: var(--spacing-8); margin-top: var(--spacing-16); }
+  .is-closed { opacity: .72; }
+  .is-closed .bar i { background: var(--fg-3); }
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } .filters .sep { display: none; } }
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="주 메뉴">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--brand)" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+      <b>스터디 매칭</b>
+    </a>
+    <ul>
+      <li><a href="/" aria-current="page">홈</a></li>
+      <li><a href="/studies/">스터디 찾기</a></li>
+      <li><a href="/create/">스터디 만들기</a></li>
+      <li><a href="/my/">내 스터디</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="wrap">
+  <section class="hero">
+    <h1 class="t-title1">함께 공부할 사람을 찾아요</h1>
+    <p>분야와 시간이 맞는 스터디에 신청하거나, 직접 모집해 보세요.</p>
+    <a class="btn btn-primary" href="/create/">스터디 만들기</a>
+  </section>
+
+  <div class="filters" role="group" aria-label="스터디 거르기">
+    <div class="chips" id="categoryChips" role="group" aria-label="분야"></div>
+    <span class="sep" aria-hidden="true"></span>
+    <div class="chips" role="group" aria-label="방식과 상태">
+      <button class="chip" data-mode="온라인" aria-pressed="false">온라인</button>
+      <button class="chip" data-mode="오프라인" aria-pressed="false">오프라인</button>
+      <button class="chip" id="openOnly" aria-pressed="false">모집중만</button>
+    </div>
+  </div>
+
+  <div class="result t-label1"><span id="count" aria-live="polite"></span></div>
+  <section id="list" aria-busy="true" style="min-height: 240px"></section>
+</main>
+
+<footer class="foot t-caption1">
+  <div class="wrap">
+    <span><b>스터디 매칭</b> · 원티드 디자인 시스템 Montage(MIT)의 디자인 토큰을 사용했어요.</span>
+    <span>원티드와 관련 없는 실습 사이트예요. 보이는 스터디와 닉네임은 가상 데이터예요.</span>
+  </div>
+</footer>
+
+<script>
+  var CATEGORIES = ['전체', '개발', '디자인', '어학', '자격증', '취업', '독서'];
+  var state = { category: '전체', mode: '', open: false };
+  var $ = function (id) { return document.getElementById(id); };
+  var ICON = {
+    mode: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>',
+    place: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>',
+    time: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>'
+  };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+  function renderChips() {
+    $('categoryChips').innerHTML = CATEGORIES.map(function (c) {
+      return '<button class="chip" data-category="' + c + '" aria-pressed="' + (state.category === c) + '">' + c + '</button>';
+    }).join('');
+  }
+
+  function card(s) {
+    var pct = Math.round(s.members / s.capacity * 100);
+    var closed = s.status !== '모집중';
+    return '<li><article class="card study' + (closed ? ' is-closed' : '') + '" aria-label="' + esc(s.title) + '">' +
+      '<div class="top"><span class="tag tag-brand">' + esc(s.category) + '</span><span class="tag' + (closed ? '' : ' tag-negative') + '">' + (closed ? '마감' : '모집중') + '</span></div>' +
+      '<h3 class="t-headline1">' + esc(s.title) + '</h3>' +
+      '<p class="t-body2">' + esc(s.description) + '</p>' +
+      '<div class="meta t-caption1"><span>' + ICON.mode + esc(s.mode) + '</span>' + (s.region ? '<span>' + ICON.place + esc(s.region) + '</span>' : '') + '<span>' + ICON.time + esc(s.schedule) + '</span></div>' +
+      '<div class="seats"><div class="row t-caption1"><span>' + esc(s.leader) + '</span><span>' + s.members + ' / ' + s.capacity + '명</span></div>' +
+      '<div class="bar" role="img" aria-label="정원 ' + s.capacity + '명 중 ' + s.members + '명"><i style="width:' + pct + '%"></i></div></div>' +
+      '</article></li>';
+  }
+
+  async function load() {
+    var list = $('list');
+    list.setAttribute('aria-busy', 'true');
+    var slow = setTimeout(function () {
+      list.innerHTML = '<ul class="grid">' + '<li><div class="skeleton" style="height:220px"></div></li>'.repeat(3) + '</ul>';
+    }, 200);
+    var q = new URLSearchParams();
+    if (state.category !== '전체') q.set('category', state.category);
+    if (state.mode) q.set('mode', state.mode);
+    if (state.open) q.set('open', '1');
+    try {
+      var res = await fetch('/api/studies?' + q);
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || '스터디를 불러오지 못했어요.');
+      $('count').textContent = '스터디 ' + data.count + '개';
+      list.innerHTML = data.studies.length
+        ? '<ul class="grid">' + data.studies.map(card).join('') + '</ul>'
+        : '<div class="empty"><p class="t-headline1">조건에 맞는 스터디가 아직 없어요.</p><p>필터를 하나 풀거나, 직접 스터디를 만들어 보세요.</p>' +
+          '<div class="empty-actions"><button class="btn btn-outline btn-sm" id="reset">필터 지우기</button><a class="btn btn-primary btn-sm" href="/create/">스터디 만들기</a></div></div>';
+    } catch (err) {
+      $('count').textContent = '';
+      list.innerHTML = '<div class="alert" role="alert"><svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg><div><b></b><div><button class="btn btn-outline btn-sm" id="retry" style="margin-top:var(--spacing-8)">다시 불러오기</button></div></div></div>';
+      list.querySelector('b').textContent = err.message;
+    } finally {
+      clearTimeout(slow);
+      list.setAttribute('aria-busy', 'false');
+    }
+  }
+
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.category) { state.category = b.dataset.category; renderChips(); load(); }
+    else if (b.dataset.mode) {
+      state.mode = state.mode === b.dataset.mode ? '' : b.dataset.mode;
+      document.querySelectorAll('[data-mode]').forEach(function (m) { m.setAttribute('aria-pressed', m.dataset.mode === state.mode); });
+      load();
+    }
+    else if (b.id === 'openOnly') { state.open = !state.open; b.setAttribute('aria-pressed', state.open); load(); }
+    else if (b.id === 'retry') { load(); }
+    else if (b.id === 'reset') {
+      state = { category: '전체', mode: '', open: false };
+      document.querySelectorAll('[data-mode], #openOnly').forEach(function (m) { m.setAttribute('aria-pressed', 'false'); });
+      renderChips(); load();
+    }
+  });
+
+  renderChips();
+  load();
+</script>
+</body>
+</html>
