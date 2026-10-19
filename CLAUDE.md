@@ -33,6 +33,7 @@ study-matching/
 - 추천에 **AI 호출을 쓰지 않아요.** 숫자 계산만으로 같은 입력에 같은 결과가 나와야 해요.
 - 데이터 필드 이름은 기획안과 같아요: member(id, name, role, domains, times, intro), team(id, number, domain, mainTimes, slots, leaderId), application(id, memberId, teamId, role, status).
 - role은 `dev/design/po/marketing`, status는 `pending/accepted/rejected`, 도메인 5개와 시간대 6개는 `v1/logic.js`의 목록에서만 골라요(자유 입력 없음).
+- 모집 버전(`recruit/`)의 스터디 `times`(진행 시간대)와 신청 `times`(가능한 시간대)는 선택 칸이고, `recruit-logic.js`의 `TIMES`(v1과 같은 6개, 테스트로 확인)에서 고른 요일에 맞는 것만 골라요.
 - 모집 버전(`recruit/`)의 신청 status에는 신청자가 대기 중에 취소한 `withdrawn`이 더 있어요. 스터디는 `closed`(마감, 다시 열 수 있음)와 `canceled`(모집 취소, 되돌릴 수 없음)로 상태를 나타내고, 둘 다 지우지 않고 남겨요.
 - 규칙을 바꾸면 `test/logic.test.js`에 테스트를 더하고 `npm test`가 통과해야 PR을 올려요. 특히 아래는 늘 통과해야 해요.
   - 팀 수 6이면 정원표가 기획안 7장 예시와 같다
