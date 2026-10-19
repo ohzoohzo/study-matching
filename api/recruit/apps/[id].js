@@ -1,6 +1,8 @@
 // PATCH /api/recruit/apps/:id
 //   { status: "accepted" | "rejected" } 수락·거절. 그 스터디의 모집자만 할 수 있어요.
+//   { status: "removed" }               내보내기. 모집자만, 수락된 사람에게만 할 수 있어요.
 //   { status: "withdrawn" }             신청 취소(거두기). 신청한 본인이 대기 중일 때만 할 수 있어요.
+//   { status: "left" }                  스스로 나가기. 수락된 본인만 할 수 있어요.
 import { handler } from "../../_lib/http.js";
 import { updateApp } from "../../_lib/recruit.js";
 

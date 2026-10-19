@@ -423,3 +423,54 @@ test("모집 마감일이 지난 스터디는 신청을 409로 막고, 모집자
   r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } });
   assert.equal(r.status, 201);
 });
+
+test("로그인하지 않으면 나가기·내보내기를 401로 막아요", async () => {
+  const call = setup();
+  assert.equal((await call(appApi, "PATCH", { query: { id: "a-1" }, body: { status: "left" } })).status, 401);
+  assert.equal((await call(appApi, "PATCH", { query: { id: "a-1" }, body: { status: "removed" } })).status, 401);
+});
+
+test("수락된 사람은 스스로 나갈 수 있고, 다른 사람은 대신 나가게 할 수 없어요", async () => {
+  const call = setup();
+  const { s, b, c } = await studyWithApps(call); // B 수락, C 대기
+  let r = await call(appApi, "PATCH", { token: "tokC", query: { id: b.id }, body: { status: "left" } });
+  assert.equal(r.status, 403);
+  assert.match(r.body.error, /본인만/);
+  r = await call(appApi, "PATCH", { token: "tokA", query: { id: b.id }, body: { status: "left" } }); // 모집자도 안 돼요
+  assert.equal(r.status, 403);
+  r = await call(appApi, "PATCH", { token: "tokC", query: { id: c.id }, body: { status: "left" } }); // 대기 중이면 나가기가 아니라 신청 취소
+  assert.equal(r.status, 409);
+  r = await call(appApi, "PATCH", { token: "tokB", query: { id: b.id }, body: { status: "left" } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.app.status, "left");
+  const st = (await call(stateApi, "GET")).body;
+  assert.equal(st.apps.find((a) => a.id === b.id).status, "left");
+  r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } }); // 마음이 바뀌면 다시 신청해요
+  assert.equal(r.status, 201);
+});
+
+test("모집자는 수락된 사람을 내보낼 수 있고, 내보낸 사람은 다시 신청할 수 없어요", async () => {
+  const call = setup();
+  const { s, b, c } = await studyWithApps(call);
+  let r = await call(appApi, "PATCH", { token: "tokC", query: { id: b.id }, body: { status: "removed" } });
+  assert.equal(r.status, 403);
+  assert.match(r.body.error, /모집자만/);
+  r = await call(appApi, "PATCH", { token: "tokA", query: { id: c.id }, body: { status: "removed" } }); // 대기 중이면 거절을 써요
+  assert.equal(r.status, 409);
+  r = await call(appApi, "PATCH", { token: "tokA", query: { id: b.id }, body: { status: "removed" } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.app.status, "removed");
+  r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id } });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /내보낸/);
+});
+
+test("모집자가 내보내는 순간 본인이 나가도 둘 중 하나만 돼요", async () => {
+  const call = setup();
+  const { b } = await studyWithApps(call);
+  const results = await Promise.all([
+    call(appApi, "PATCH", { token: "tokA", query: { id: b.id }, body: { status: "removed" } }),
+    call(appApi, "PATCH", { token: "tokB", query: { id: b.id }, body: { status: "left" } }),
+  ]);
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+});
