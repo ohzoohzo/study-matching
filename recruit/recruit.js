@@ -95,6 +95,7 @@ async function boot() {
   renderMe();
   route();
   loadNotes();
+  if (me() && canPush() && Notification.permission === "granted") checkPush(); // 이 기기 구독을 서버와 맞춰요
 }
 
 // ---------- 도우미 ----------
@@ -286,6 +287,17 @@ let pushState = "";
 let pushKey = null; // 서버가 준 VAPID 공개키 ("": 알림 꺼진 서버)
 const canPush = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+const ANDROID = /Android/.test(navigator.userAgent);
+const MAC = !IOS && /Macintosh|Mac OS X/.test(navigator.userAgent);
+const WINDOWS = /Windows/.test(navigator.userAgent);
+// 도착은 했는데 알림 창이 안 보일 때 확인할 곳 (기기마다 달라요)
+const SHOW_HINT = ANDROID ? "휴대폰 설정 → 애플리케이션 → Chrome → 알림, 그리고 크롬 → 설정 → 사이트 설정 → 알림을 확인해 주세요."
+  : MAC ? "맥의 시스템 설정 → 알림 → Google Chrome(또는 쓰는 브라우저)에서 알림 허용을 켜고, 집중 모드(방해 금지)를 꺼 주세요."
+    : WINDOWS ? "윈도우 설정 → 시스템 → 알림에서 Chrome(또는 쓰는 브라우저) 알림을 켜고, 방해 금지 모드를 꺼 주세요."
+      : "운영체제 알림 설정에서 이 브라우저의 알림이 켜져 있는지 확인해 주세요.";
+// 도착하지 않을 때 확인할 곳
+const ARRIVE_HINT = ANDROID ? "절전 모드, 데이터 절약, 크롬 앱의 배터리 사용 제한을 확인해 주세요."
+  : "브라우저가 실행 중인지(창은 닫아도 돼요), 인터넷 연결과 회사·학교 방화벽을 확인해 주세요.";
 async function pushSub() {
   const reg = await navigator.serviceWorker.getRegistration("/");
   if (reg) reg.update().catch(() => {}); // 새 sw.js가 있으면 받아 와요
@@ -307,9 +319,9 @@ function pushTestView() {
   if (t.results && t.results.length && !t.results.some((r) => r.tail === t.tail)) lines.push("이 기기의 구독이 서버에 없어요. ‘이 기기 알림 끄기’를 누른 뒤 다시 켜 주세요.");
   if (t.results && t.results.some((r) => r.ok && r.tail === t.tail)) {
     if (t.arrived === null) lines.push("이 기기에 도착하기를 기다리고 있어요(최대 15초).");
-    else if (t.arrived === false) lines.push("15초 안에 이 기기에 도착하지 않았어요. 푸시 서버에서 휴대폰으로 오는 길에서 막혀요. 절전 모드, 데이터 절약, 크롬 백그라운드 제한을 확인해 주세요.");
+    else if (t.arrived === false) lines.push("15초 안에 이 기기에 도착하지 않았어요. 푸시 서버에서 이 기기로 오는 길에서 막혀요. " + ARRIVE_HINT);
     else lines.push("이 기기에 " + t.arrived.secs + "초 만에 도착했어요. " + (t.arrived.error ? "그런데 알림을 띄우지 못했어요: " + t.arrived.error
-      : "알림 창이 안 보였다면 휴대폰 설정 → 애플리케이션 → Chrome → 알림, 그리고 크롬 → 설정 → 사이트 설정 → 알림을 확인해 주세요."));
+      : "알림 창이 안 보였다면 " + SHOW_HINT));
   }
   return '<ul class="push-test t-caption1">' + lines.map((l) => "<li>" + esc(l) + "</li>").join("") + "</ul>";
 }
@@ -328,7 +340,17 @@ async function checkPush() {
       if (pushKey === null) { const d = await api("GET", "push"); pushKey = d && d.enabled ? d.publicKey : ""; }
       if (!pushKey) pushState = "off";
       else if (Notification.permission === "denied") pushState = "denied";
-      else pushState = (await pushSub()) ? "on" : "ready";
+      else {
+        const sub = await pushSub();
+        if (!sub) pushState = "ready";
+        else if (!me()) pushState = "on";
+        else {
+          // 이 브라우저에 구독이 있어도 서버에 없을 수 있어요(켤 때 로그인이 만료됐거나, 브라우저가 구독을 바꾼 경우).
+          // 그래서 볼 때마다 서버에 다시 저장해서 맞춰요. 서버는 같은 기기를 한 번만 저장해요.
+          try { await api("POST", "push", { subscription: sub.toJSON() }); pushState = "on"; }
+          catch (e) { pushState = "unsynced"; }
+        }
+      }
     } catch (e) { pushState = "error"; }
   }
   const box = document.getElementById("pushBox");
@@ -347,6 +369,7 @@ function pushBox() {
     off: ["알림은 아직 준비 중이에요.", ""],
     error: ["알림 설정을 확인하지 못했어요.", btn("push-check", "다시 확인")],
     denied: ["브라우저 설정에서 이 사이트 알림이 막혀 있어요. 설정에서 허용한 뒤 다시 확인해 주세요.", btn("push-check", "다시 확인")],
+    unsynced: ["이 기기 알림 설정을 서버에 저장하지 못했어요. 그래서 이 기기로는 알림이 가지 않아요.", btn("push-check", "다시 저장")],
     on: ["이 기기에서 새 신청·수락 같은 소식을 알림으로 받고 있어요. 알림이 안 오면 테스트 알림으로 어디서 막히는지 볼 수 있어요.",
       '<div class="actions"><button type="button" class="btn btn-outline btn-sm" data-act="push-test">' + ICON.bell + "테스트 알림 보내기</button>" +
       '<button type="button" class="btn btn-outline btn-sm" data-act="push-off">이 기기 알림 끄기</button></div>' + pushTestView()],
