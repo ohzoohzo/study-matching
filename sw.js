@@ -6,7 +6,14 @@ self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("push", (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data ? e.data.text() : "" }; }
-  e.waitUntil(self.registration.showNotification(d.title || "스터디 모집", { body: d.body || "", data: { url: d.url || "/" }, lang: "ko" }));
+  e.waitUntil((async () => {
+    let error = "";
+    try { await self.registration.showNotification(d.title || "스터디 모집", { body: d.body || "", data: { url: d.url || "/" }, tag: d.tag || undefined, lang: "ko" }); }
+    catch (err) { error = String((err && err.message) || err); }
+    // 열려 있는 사이트 화면에 "이 기기에 도착했어요"를 알려요 (테스트 알림으로 어디서 끊기는지 가를 때 써요)
+    const list = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    list.forEach((c) => c.postMessage({ type: "push-received", tag: d.tag || "", test: !!d.test, error }));
+  })());
 });
 
 self.addEventListener("notificationclick", (e) => {
