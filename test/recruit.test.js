@@ -375,3 +375,42 @@ test("정원이 찼던 스터디에서 한 명이 빠지면 다시 모집 중이
   assert.equal(R.studyStatus(full, apps, seed.people), "open");
   assert.equal(R.studyStatus({ ...full, closed: true }, R.removeMember(full, seed.apps, "p1", "x5"), seed.people), "closed");
 });
+
+// ---------- 푸시 알림 문구: 누구에게 무엇을 보낼지 ----------
+const push = (kind, appId, study = S("s1"), apps = seed.apps) =>
+  R.pushMessages(kind, { study, app: apps.find((a) => a.id === appId), apps, people: seed.people });
+
+test("알림: 신청·신청 취소·나가기는 모집자에게 가요", () => {
+  for (const [kind, word] of [["applied", "신청했어요"], ["withdrawn", "취소했어요"], ["left", "나갔어요"]]) {
+    const [m, ...rest] = push(kind, "x2"); // 디자인A → s1 모집자 개발B(p5)
+    assert.equal(rest.length, 0, kind);
+    assert.equal(m.personId, "p5", kind);
+    assert.match(m.body, /디자인A님/, kind);
+    assert.match(m.body, new RegExp(word), kind);
+    assert.match(m.body, /pandas로 CSV 분석해 보기/, kind);
+    assert.equal(m.url, "/#/s/s1");
+  }
+});
+
+test("알림: 수락·거절·내보내기는 그 신청자에게 가요", () => {
+  for (const [kind, word] of [["accepted", "수락"], ["rejected", "거절"], ["removed", "내보냈어요"]]) {
+    const msgs = push(kind, "x2");
+    assert.deepEqual(msgs.map((m) => m.personId), ["p2"], kind);
+    assert.match(msgs[0].title + msgs[0].body, new RegExp(word), kind);
+  }
+});
+
+test("알림: 모집 취소는 수락된 사람과 대기 중인 사람에게만 한 번씩 가요", () => {
+  const apps = seed.apps.concat(
+    { id: "y1", studyId: "s1", personId: "p3", status: "rejected" },
+    { id: "y2", studyId: "s1", personId: "p4", status: "withdrawn" },
+    { id: "y3", studyId: "s1", personId: "p2", status: "pending" }, // 같은 사람이 또 있어도 한 번만
+  );
+  const msgs = R.pushMessages("canceled", { study: S("s1"), apps, people: seed.people });
+  assert.deepEqual(msgs.map((m) => m.personId).sort(), ["p2", "p7"]);
+  assert.ok(msgs.every((m) => /취소/.test(m.title + m.body)));
+});
+
+test("알림: 모르는 일이면 아무에게도 보내지 않아요", () => {
+  assert.deepEqual(push("closed", "x2"), []);
+});

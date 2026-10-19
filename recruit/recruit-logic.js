@@ -245,3 +245,24 @@ export function filterStudies(studies, apps, people, { q = "", openOnly = false,
     (!openOnly || isOpen(s, apps, people, today)) &&
     (!needRole || roleMix(s, apps, people).missing.includes(needRole)));
 }
+
+// 푸시 알림 문구: 어떤 일이 생겼을 때 누구에게 무엇을 보낼지 정해요. 서버는 이 목록대로 보내기만 해요.
+// 일을 한 사람 자신에게는 보내지 않아요. 알림을 누르면 그 스터디 상세(url)로 가요.
+export function pushMessages(kind, { study, app = null, apps = [], people = [] }) {
+  const name = (id) => ((people.find((p) => p.id === id) || {}).name || "누군가") + "님";
+  const t = "‘" + study.title + "’";
+  const to = (personId, title, body) => ({ personId, title, body, url: "/#/s/" + encodeURIComponent(study.id) });
+  switch (kind) {
+    case "applied": return [to(study.leaderId, "새 신청이 왔어요", name(app.personId) + "이 " + t + "에 신청했어요.")];
+    case "withdrawn": return [to(study.leaderId, "신청이 취소됐어요", name(app.personId) + "이 " + t + " 신청을 취소했어요.")];
+    case "left": return [to(study.leaderId, "함께하던 사람이 나갔어요", name(app.personId) + "이 " + t + "에서 나갔어요. 자리가 하나 비었어요.")];
+    case "accepted": return [to(app.personId, "신청이 수락됐어요", t + "에 함께하게 됐어요. 결성 다음 할 일을 확인해요.")];
+    case "rejected": return [to(app.personId, "신청이 거절됐어요", t + " 신청이 거절됐어요. 다른 스터디도 둘러봐요.")];
+    case "removed": return [to(app.personId, "스터디에서 빠졌어요", "모집자가 " + t + "에서 내보냈어요.")];
+    case "canceled": {
+      const ids = [...new Set(apps.filter((a) => a.studyId === study.id && (a.status === "accepted" || a.status === "pending")).map((a) => a.personId))];
+      return ids.map((id) => to(id, "모집이 취소됐어요", "모집자가 " + t + " 모집을 취소했어요."));
+    }
+    default: return [];
+  }
+}
