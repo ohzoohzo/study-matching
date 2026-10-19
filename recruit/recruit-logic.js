@@ -1,6 +1,8 @@
 // 공지용 스터디 모집 규칙. 화면(recruit.js)·서버 함수(api/_lib/recruit.js)·테스트가 같이 써요.
 // 구성원이 구글로 로그인해 스터디를 열고(이름·요일·목표) → 다른 사람이 신청하고 → 모집자가 수락하면 함께해요.
 // 주제는 따로 고르지 않고 스터디 이름에 적어요.
+// 모집자는 마감·다시 열기·모집 취소를, 신청자는 대기 중인 신청 거두기를 할 수 있어요.
+// 취소·거두기는 지우지 않고 표시만 남겨요(study.canceled, application.status "withdrawn"). 함께하던 사람이 "취소됨"을 볼 수 있어요.
 
 export const ROLES = [
   { key: "dev", label: "개발" },
@@ -48,7 +50,13 @@ export function seatsLeft(study, apps, people) {
   return Math.max(0, study.capacity - members(study, apps, people).length);
 }
 export function isOpen(study, apps, people) {
-  return !study.closed && seatsLeft(study, apps, people) > 0;
+  return !study.canceled && !study.closed && seatsLeft(study, apps, people) > 0;
+}
+// 카드·목록에 보여 줄 상태: open 모집 중 · full 정원 마감 · closed 마감 · canceled 취소됨
+export function studyStatus(study, apps, people) {
+  if (study.canceled) return "canceled";
+  if (study.closed) return "closed";
+  return seatsLeft(study, apps, people) > 0 ? "open" : "full";
 }
 
 // 직군 구성: 직군별 인원과 아직 없는 직군 (직군이 섞인 협업 스터디를 돕기 위해)
@@ -66,6 +74,7 @@ export function myApplication(study, apps, personId) {
 export function canApply(study, apps, people, personId) {
   if (!personId) return { ok: false, reason: "먼저 구글로 로그인해 주세요." };
   if (study.leaderId === personId) return { ok: false, reason: "내가 연 스터디예요." };
+  if (study.canceled) return { ok: false, reason: "모집자가 취소한 스터디예요." }; // 함께하던 사람에게도 이 이유가 먼저예요
   const mine = myApplication(study, apps, personId);
   if (mine && mine.status === "accepted") return { ok: false, reason: "이미 함께하고 있어요." };
   if (mine && mine.status === "pending") return { ok: false, reason: "신청했어요. 모집자의 답을 기다려 주세요." };
@@ -80,28 +89,80 @@ export function apply(study, apps, people, personId, id, message = "") {
   return apps.concat({ id, studyId: study.id, personId, status: "pending", message: String(message).trim().slice(0, 80) });
 }
 
-// 수락·거절·마감은 모집자만 할 수 있어요. 서버(/api)도 이 함수로 막아요.
+// 수락·거절·마감·다시 열기·모집 취소는 모집자만 할 수 있어요. 서버(/api)도 이 함수로 막아요.
 export function canManage(study, personId) {
   if (!personId) return { ok: false, reason: "먼저 구글로 로그인해 주세요." };
-  if (study.leaderId !== personId) return { ok: false, reason: "모집자만 수락·거절·마감할 수 있어요." };
+  if (study.leaderId !== personId) return { ok: false, reason: "모집자만 수락·거절·마감·취소할 수 있어요." };
   return { ok: true };
+}
+function manage(study, personId) {
+  const c = canManage(study, personId);
+  if (!c.ok) throw new Error(c.reason);
+  if (study.canceled) throw new Error("취소된 스터디예요.");
 }
 
 export function closeStudy(study, personId) {
+  manage(study, personId);
+  if (study.closed) throw new Error("이미 마감한 스터디예요.");
+  return { ...study, closed: true };
+}
+
+// 마감한 스터디를 다시 열어요. 정원이 찼으면 다시 열어도 신청을 받을 수 없어서 막아요.
+export function reopenStudy(study, apps, people, personId) {
+  manage(study, personId);
+  if (!study.closed) throw new Error("마감한 스터디만 다시 열 수 있어요.");
+  if (seatsLeft(study, apps, people) === 0) throw new Error("정원이 다 차서 다시 열어도 신청을 받을 수 없어요.");
+  return { ...study, closed: false };
+}
+
+// 모집 취소: 되돌릴 수 없어요. 지우지 않고 canceled로 남겨서 목록에서는 빼고, 함께하던 사람에게는 "취소됨"을 보여 줘요.
+export function cancelStudy(study, personId, at) {
   const c = canManage(study, personId);
   if (!c.ok) throw new Error(c.reason);
-  return { ...study, closed: true };
+  if (study.canceled) throw new Error("이미 취소한 스터디예요.");
+  return { ...study, canceled: true, canceledAt: at };
+}
+
+// 신청 취소(거두기): 신청한 사람이 대기 중인 신청만 거둘 수 있어요. 거둔 뒤에는 다시 신청할 수 있어요.
+export function withdraw(study, apps, personId, appId) {
+  if (!personId) throw new Error("먼저 구글로 로그인해 주세요.");
+  const a = apps.find((x) => x.id === appId && x.studyId === study.id);
+  if (!a) throw new Error("찾는 신청이 없어요.");
+  if (a.personId !== personId) throw new Error("내 신청만 취소할 수 있어요.");
+  if (study.canceled) throw new Error("취소된 스터디예요.");
+  if (a.status !== "pending") throw new Error("대기 중인 신청만 취소할 수 있어요.");
+  return apps.map((x) => (x.id === appId ? { ...x, status: "withdrawn" } : x));
 }
 
 // 수락하면 정원이 찼는지 다시 봐요. 정원이 차면 남은 대기 신청은 그대로 두고 화면에서 "정원 마감"을 보여 줘요.
 export function decide(study, apps, people, appId, status) {
+  if (study.canceled) throw new Error("취소된 스터디예요.");
   const a = apps.find((x) => x.id === appId && x.studyId === study.id);
   if (!a || a.status !== "pending") throw new Error("대기 중인 신청만 수락하거나 거절할 수 있어요.");
   if (status === "accepted" && seatsLeft(study, apps, people) === 0) throw new Error("정원이 다 차서 더 수락할 수 없어요.");
   return apps.map((x) => (x.id === appId ? { ...x, status } : x));
 }
 
-// 목록 정렬: 모집 중인 스터디가 먼저, 그다음 최근에 연 순서
+// 목록 정렬: 모집 중인 스터디가 먼저, 취소한 스터디는 맨 뒤, 같은 묶음 안에서는 최근에 연 순서
 export function sortStudies(studies, apps, people) {
-  return studies.slice().sort((a, b) => Number(isOpen(b, apps, people)) - Number(isOpen(a, apps, people)) || b.createdAt.localeCompare(a.createdAt));
+  const rank = (s) => (s.canceled ? 2 : isOpen(s, apps, people) ? 0 : 1);
+  return studies.slice().sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt));
+}
+
+// 검색: 스터디 이름·목표·모집자 이름에 검색어의 낱말이 모두 들어 있으면 찾아요 (영문 대소문자는 가리지 않아요)
+const fold = (v) => String(v == null ? "" : v).normalize("NFC").toLowerCase();
+export function matchesSearch(study, people, q) {
+  const words = fold(q).split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const leader = people.find((p) => p.id === study.leaderId);
+  const text = fold([study.title, study.goal, leader ? leader.name : ""].join(" "));
+  return words.every((w) => text.includes(w));
+}
+
+// 목록에 보여 줄 스터디: 취소한 스터디는 빼고, 검색어·"모집 중만"·"이 직군이 비어 있는 스터디"를 함께 걸러 정렬해요
+export function filterStudies(studies, apps, people, { q = "", openOnly = false, needRole = "" } = {}) {
+  return sortStudies(studies.filter((s) => !s.canceled), apps, people).filter((s) =>
+    matchesSearch(s, people, q) &&
+    (!openOnly || isOpen(s, apps, people)) &&
+    (!needRole || roleMix(s, apps, people).missing.includes(needRole)));
 }
