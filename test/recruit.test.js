@@ -414,3 +414,81 @@ test("알림: 모집 취소는 수락된 사람과 대기 중인 사람에게만
 test("알림: 모르는 일이면 아무에게도 보내지 않아요", () => {
   assert.deepEqual(push("closed", "x2"), []);
 });
+
+test("해시태그 다듬기: 앞의 #·＃와 모든 띄어쓰기를 지우고, 대소문자는 그대로 둬요", () => {
+  assert.equal(R.normalizeTag("  #프리온보딩 7기 "), "프리온보딩7기");
+  assert.equal(R.normalizeTag("＃＃React"), "React");
+  assert.equal(R.normalizeTag(null), "");
+  assert.equal(R.tagKey("#React"), "react");
+});
+
+test("해시태그 정리: 빈 것은 빼고, 대소문자만 다른 중복은 먼저 적은 것만 남겨요", () => {
+  assert.deepEqual(R.cleanTags(["React", "#react", " ", "주말", "REACT"]), ["React", "주말"]);
+  assert.deepEqual(R.cleanTags(undefined), []);
+  assert.deepEqual(R.tagsOf({}), []);
+  assert.deepEqual(R.tagsOf({ tags: ["a"] }), ["a"]);
+});
+
+test("해시태그 검사: 선택 칸이고, 10개·20자·글자·숫자·_만 돼요", () => {
+  assert.equal(R.validateTags(undefined), "");
+  assert.equal(R.validateTags(null), "");
+  assert.equal(R.validateTags([]), "");
+  assert.equal(R.validateTags(["프리온보딩7기", "front_end", "React"]), "");
+  assert.equal(R.validateTags(["  #프리온보딩 7기"]), ""); // #과 띄어쓰기는 다듬은 뒤에 봐요
+  assert.equal(R.validateTags("7기"), "해시태그를 다시 확인해 주세요.");
+  assert.equal(R.validateTags([7]), "해시태그를 다시 확인해 주세요.");
+  assert.equal(R.validateTags(Array.from({ length: 11 }, (_, i) => "t" + i)), "해시태그는 10개까지 달 수 있어요.");
+  assert.equal(R.validateTags(Array.from({ length: 11 }, () => "같은태그")), ""); // 정리하면 1개
+  assert.equal(R.validateTags(["가".repeat(20)]), "");
+  assert.equal(R.validateTags(["가".repeat(21)]), "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+  assert.equal(R.validateTags(["<b>"]), "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+  assert.equal(R.validateTags(["c++"]), "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+  assert.equal(R.validateTags(["\u{1F600}"]), "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+});
+
+test("해시태그 입력 나누기: 쉼표와 #에서 나누고, 띄어쓰기는 지워요 (붙여넣기도 돼요)", () => {
+  assert.deepEqual(R.parseTagInput("#a, #b c #d"), ["a", "bc", "d"]);
+  assert.deepEqual(R.parseTagInput("프리온보딩 7기"), ["프리온보딩7기"]);
+  assert.deepEqual(R.parseTagInput("#프리온보딩7기 #프론트엔드, 주말"), ["프리온보딩7기", "프론트엔드", "주말"]);
+  assert.deepEqual(R.parseTagInput(" , # "), []);
+});
+
+test("프로필·스터디 검사에 해시태그가 들어가요 (안 달아도 돼요)", () => {
+  assert.deepEqual(R.validateProfile({ name: "하늘", role: "dev" }), {});
+  assert.deepEqual(R.validateProfile({ name: "하늘", role: "dev", tags: ["7기"] }), {});
+  assert.equal(R.validateProfile({ name: "하늘", role: "dev", tags: ["<b>"] }).tags, "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+  const ok = { title: "NumPy 벡터 연산", days: ["화"], mode: "ZEP 온라인", capacity: 4, goal: "반복문을 벡터 연산으로 바꾸기" };
+  assert.deepEqual(R.validateStudy({ ...ok, tags: ["7기"] }), {});
+  assert.equal(R.validateStudy({ ...ok, tags: "7기" }).tags, "해시태그를 다시 확인해 주세요.");
+});
+
+test("해시태그 검색: #이 붙은 낱말은 스터디 태그에서 일부만 맞아도 찾아요", () => {
+  const a = { ...S("s1"), id: "t1", tags: ["프리온보딩7기", "React"] };
+  const b = { ...S("s2"), id: "t2", tags: ["프리온보딩17기"] };
+  const c = { ...S("s3"), id: "t3" }; // 태그가 없는 예전 스터디
+  const hit = (q) => [a, b, c].filter((s) => R.matchesSearch(s, seed.people, q)).map((s) => s.id);
+  assert.deepEqual(hit("#프리온보딩7기"), ["t1"]);
+  assert.deepEqual(hit("#7기"), ["t1", "t2"]); // 일부 일치라 17기도 나와요
+  assert.deepEqual(hit("＃react"), ["t1"]);
+  assert.deepEqual(hit("#"), ["t1", "t2", "t3"]); // #만 있으면 무시해요
+  assert.deepEqual(hit("#7기 pandas"), ["t1"]); // 낱말은 모두 맞아야 해요
+  assert.deepEqual(hit("#pandas"), []); // #이면 이름·목표는 보지 않아요
+  assert.deepEqual(hit("온보딩"), ["t1", "t2"]); // #이 없으면 태그도 봐요
+});
+
+test("검색어에 태그 넣고 빼기: 칩과 카드 태그가 써요", () => {
+  assert.equal(R.toggleTagInQuery("", "프리온보딩7기"), "#프리온보딩7기");
+  assert.equal(R.toggleTagInQuery("pandas", "#React"), "pandas #React");
+  assert.equal(R.toggleTagInQuery("pandas  #react  csv", "React"), "pandas csv");
+  assert.equal(R.tagInQuery("pandas #REACT", "react"), true);
+  assert.equal(R.tagInQuery("pandas #React", "Re"), false); // 넣고 빼기는 태그 전체가 같을 때만이에요
+  assert.equal(R.tagInQuery("react", "react"), false); // #이 없는 낱말은 태그가 아니에요
+});
+
+test("많이 쓰는 태그: 사람과 취소되지 않은 스터디에서 세고, 많은 순·가나다순이에요", () => {
+  const people = [{ id: "p1", tags: ["React", "7기"] }, { id: "p2", tags: ["react"] }, { id: "p3" }];
+  const studies = [{ id: "s1", tags: ["7기", "주말"] }, { id: "s2", canceled: true, tags: ["취소된태그"] }, { id: "s3" }];
+  assert.deepEqual(R.tagSuggestions(people, studies), ["7기", "React", "주말"]);
+  assert.deepEqual(R.tagSuggestions(people, studies, { exclude: ["REACT"] }), ["7기", "주말"]);
+  assert.deepEqual(R.tagSuggestions(people, studies, { limit: 1 }), ["7기"]);
+});
