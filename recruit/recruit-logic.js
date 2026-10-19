@@ -1,5 +1,5 @@
 // 공지용 스터디 모집 규칙. 화면(recruit.js)과 테스트가 같이 써요.
-// 구성원이 스터디를 열고(주제·횟수·요일·목표) → 다른 사람이 신청하고 → 모집자가 수락하면 함께해요.
+// 구성원이 구글로 로그인해 스터디를 열고(요일·목표, 원하면 권장 주제) → 다른 사람이 신청하고 → 모집자가 수락하면 함께해요.
 
 export const ROLES = [
   { key: "dev", label: "개발" },
@@ -9,7 +9,7 @@ export const ROLES = [
 ];
 export const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.key, r.label]));
 
-// 영희 강사님 추천 10월 파이썬 스터디 권장 주제
+// 영희 강사님 추천 10월 파이썬 스터디 권장 주제. 고르지 않아도 돼요(그때는 스터디 이름이 곧 주제예요).
 export const TOPICS = [
   { key: "t1", label: "주제1 · 파이썬 기본 문법과 자료구조" },
   { key: "t2", label: "주제2 · 함수와 모듈, 개발 환경" },
@@ -18,7 +18,6 @@ export const TOPICS = [
   { key: "t5", label: "주제5 · 외부 API 호출" },
   { key: "t6", label: "주제6 · Streamlit으로 화면 만들기" },
   { key: "t7", label: "주제7 · Flask로 웹 서버 만들기" },
-  { key: "free", label: "직접 정하기" },
 ];
 export const TOPIC_LABEL = Object.fromEntries(TOPICS.map((t) => [t.key, t.label]));
 export const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
@@ -28,15 +27,13 @@ export const MAX_CAPACITY = 6; // 공지: 6명 이내 권장
 // 스터디 등록 입력 검사: 틀린 칸마다 이유를 돌려줘요
 export function validateStudy(s) {
   const e = {};
-  if (!TOPIC_LABEL[s.topic]) e.topic = "학습 주제를 하나 골라 주세요.";
+  if (s.topic && !TOPIC_LABEL[s.topic]) e.topic = "권장 주제는 목록에서 골라 주세요.";
   const title = String(s.title || "").trim();
   if (title.length < 2 || title.length > 40) e.title = "스터디 이름을 2~40자로 적어 주세요.";
-  const per = Number(s.perWeek);
-  if (!Number.isInteger(per) || per < 1 || per > 7) e.perWeek = "횟수를 골라 주세요.";
+  // 주 횟수는 따로 받지 않고 고른 요일 수로 정해요
   const days = s.days || [];
   if (!days.length) e.days = "진행 요일을 하나 이상 골라 주세요.";
   else if (days.some((d) => !DAYS.includes(d))) e.days = "요일은 목록에서 골라 주세요.";
-  else if (Number.isInteger(per) && days.length !== per) e.days = "고른 요일 수(" + days.length + "개)가 주 " + per + "회와 맞지 않아요.";
   const goal = String(s.goal || "").trim();
   if (goal.length < 5 || goal.length > 80) e.goal = "간단 목표를 5~80자로 적어 주세요.";
   if (!MODES.includes(s.mode)) e.mode = "진행 방식을 골라 주세요.";
@@ -48,7 +45,7 @@ export function validateStudy(s) {
 export function validateProfile(p) {
   const e = {};
   const name = String(p.name || "").trim();
-  if (name.length < 2 || name.length > 12) e.name = "닉네임을 2~12자로 적어 주세요.";
+  if (name.length < 2 || name.length > 12) e.name = "보여 줄 이름을 2~12자로 적어 주세요.";
   if (!ROLE_LABEL[p.role]) e.role = "직군을 하나 골라 주세요.";
   return e;
 }
@@ -78,7 +75,7 @@ export function myApplication(study, apps, personId) {
 }
 
 export function canApply(study, apps, people, personId) {
-  if (!personId) return { ok: false, reason: "먼저 닉네임과 직군을 알려 주세요." };
+  if (!personId) return { ok: false, reason: "먼저 구글로 로그인해 주세요." };
   if (study.leaderId === personId) return { ok: false, reason: "내가 연 스터디예요." };
   const mine = myApplication(study, apps, personId);
   if (mine && mine.status === "accepted") return { ok: false, reason: "이미 함께하고 있어요." };

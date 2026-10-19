@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>개인정보처리방침 · 스터디 매칭</title>
+<script>
+  try { if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.dataset.theme = 'dark'; } catch (e) {}
+</script>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .policy { max-width: 720px; padding-bottom: var(--spacing-48); }
+  .policy h2 { margin: var(--spacing-32) 0 var(--spacing-8); }
+  .policy p, .policy li { color: var(--fg-2); line-height: 1.7; }
+  .policy ul { margin: 0; padding-left: var(--spacing-20); }
+  .policy table { width: 100%; border-collapse: collapse; }
+  .policy th, .policy td { text-align: left; vertical-align: top; padding: var(--spacing-8) var(--spacing-12); border-top: 1px solid var(--line-soft); }
+  .policy th { width: 30%; color: var(--fg); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="주 메뉴">
+  <div class="wrap">
+    <a class="brand" href="/recruit/">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--brand)" d="M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82zM12 3 1 9l11 6 9-4.91V17h2V9L12 3z"/></svg>
+      <b>스터디 매칭</b>
+    </a>
+    <ul>
+      <li><a href="/recruit/">스터디 모집</a></li>
+      <li><a href="/">매칭보드</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="wrap policy">
+  <header class="page-head">
+    <h1 class="t-title1">개인정보처리방침</h1>
+    <p>스터디 매칭(study-matching-nu.vercel.app)은 부트캠프 수강생이 실습으로 만든 비상업 사이트예요. 이 페이지는 구글 로그인으로 받는 정보를 어디에, 왜, 얼마나 두는지 알려 드려요.</p>
+  </header>
+
+  <h2 class="t-heading2">받는 정보</h2>
+  <table>
+    <tr><th scope="row">구글 로그인</th><td>이름, 이메일 주소, 구글 계정 고유번호</td></tr>
+    <tr><th scope="row">직접 적는 정보</th><td>보여 줄 이름, 직군, 내가 연 스터디 내용, 신청할 때 적은 한 줄 메시지</td></tr>
+  </table>
+
+  <h2 class="t-heading2">쓰는 곳</h2>
+  <ul>
+    <li>같은 구글 계정으로 다시 들어왔을 때 내 프로필을 이어 주는 데 계정 고유번호를 써요.</li>
+    <li>구글 이름은 "보여 줄 이름" 칸을 미리 채우는 데만 써요. 저장하기 전에 고칠 수 있어요.</li>
+    <li>이메일 주소는 로그인 직후 "어떤 계정으로 들어왔는지" 확인 문구에만 보여 주고 저장하지 않아요.</li>
+    <li>보여 줄 이름과 직군은 스터디 카드와 신청 목록에 보여요.</li>
+  </ul>
+
+  <h2 class="t-heading2">두는 곳과 기간</h2>
+  <ul>
+    <li>지금은 모든 정보가 <b>내 브라우저(localStorage)</b>에만 저장되고, 이 사이트의 서버로 보내지 않아요.</li>
+    <li>브라우저의 사이트 데이터를 지우면 바로 사라져요. 로그아웃하면 이 브라우저에서 내 계정 연결이 풀려요.</li>
+  </ul>
+
+  <h2 class="t-heading2">다른 곳에 주는 정보</h2>
+  <p>다른 사람이나 회사에 주지 않아요. 로그인은 Google Identity Services로 처리하고, 이때 구글이 받는 정보는 <a href="https://policies.google.com/privacy?hl=ko" rel="noopener">Google 개인정보처리방침</a>을 따라요.</p>
+
+  <h2 class="t-heading2">앞으로 바뀔 수 있는 점</h2>
+  <p>여러 사람이 같은 스터디 목록을 보도록 서버 저장소(Vercel Storage)를 붙이면, 보여 줄 이름·직군·스터디·신청 정보와 계정 고유번호를 서버에 두게 돼요. 그때는 이 페이지를 먼저 고치고 사이트에 알려 드려요.</p>
+
+  <h2 class="t-heading2">문의</h2>
+  <p><a href="https://github.com/ohzoohzo/study-matching/issues" rel="noopener">GitHub 이슈</a>로 남겨 주세요.</p>
+
+  <p class="t-caption1" style="margin-top:var(--spacing-32)">시행일: 2026년 10월 19일</p>
+</main>
+
+<footer class="foot t-caption1">
+  <div class="wrap">
+    <span><b>스터디 매칭</b> · 원티드 디자인 시스템 Montage(MIT)의 디자인 토큰을 사용했어요.</span>
+    <span>원티드와 관련 없는 실습 사이트예요.</span>
+  </div>
+</footer>
+
+</body>
+</html>
