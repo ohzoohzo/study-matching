@@ -269,6 +269,22 @@ function timeChips(group, list, picked, emptyText) {
   return list.map((t) => '<button type="button" class="chip" data-pick="' + group + '" data-val="' + esc(t) + '" aria-pressed="' + picked.includes(t) + '">' + esc(t) + "</button>").join("");
 }
 const NEED_DAYS = "요일을 먼저 고르면 맞는 시간대가 나와요.";
+// 일정: "2026-10-25" → "10/25". 카드·상세에는 "모집 ~10/25 · 진행 10/27~11/30"처럼 보여요
+const md = (d) => Number(d.slice(5, 7)) + "/" + Number(d.slice(8, 10));
+function dateLine(s) {
+  const parts = [];
+  if (s.deadline) parts.push("모집 ~" + md(s.deadline));
+  if (s.startDate || s.endDate) parts.push("진행 " + (s.startDate ? md(s.startDate) : "") + (s.endDate ? "~" + md(s.endDate) : "부터"));
+  return parts.join(" · ");
+}
+// 모집 중이고 마감일이 있으면 "마감 D-3", 마감일 당일이면 "오늘 마감"
+function dueTag(s) {
+  const n = R.daysLeft(s);
+  if (n === null || n < 0 || R.studyStatus(s, S.apps, S.people) !== "open") return "";
+  return '<span class="tag tag-brand">' + (n === 0 ? "오늘 마감" : "마감 D-" + n) + "</span>";
+}
+// 모집 마감일이 지나서 마감됐는지 (모집자가 직접 마감한 것과 안내가 달라요)
+const closedByDate = (s) => !s.closed && !s.canceled && R.studyStatus(s, S.apps, S.people) === "closed";
 
 const STUDY_TAG = { open: ["tag status-open", "모집 중"], full: ["tag", "정원 마감"], closed: ["tag", "마감"], canceled: ["tag tag-negative", "취소됨"] };
 function statusTag(s) {
@@ -307,10 +323,11 @@ function seatsBar(s) {
 function studyCard(s) {
   const leader = person(s.leaderId);
   return '<li><a class="card study" href="#/s/' + encodeURIComponent(s.id) + '">' +
-    '<div class="tags">' + statusTag(s) + "</div>" +
+    '<div class="tags">' + statusTag(s) + dueTag(s) + "</div>" +
     '<h3 class="t-headline1">' + esc(s.title) + "</h3>" +
     '<p class="goal t-body2">' + esc(s.goal) + "</p>" +
     '<div class="meta t-caption1">' + metaLine(s) + "</div>" +
+    (dateLine(s) ? '<div class="meta t-caption1">' + dateLine(s) + "</div>" : "") +
     '<div class="leader t-caption1">모집자 ' + (leader ? "<b>" + esc(leader.name) + "</b> · " + R.ROLE_LABEL[leader.role] : "알 수 없음") + "</div>" +
     seatsBar(s) + mixRow(s) + "</a></li>";
 }
@@ -368,7 +385,7 @@ function viewList() {
 }
 
 // ---------- 스터디 열기 ----------
-const emptyDraft = () => ({ title: "", days: [], times: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "" });
+const emptyDraft = () => ({ title: "", days: [], times: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "", deadline: "", startDate: "", endDate: "" });
 let draft = emptyDraft();
 let derrors = {};
 
@@ -385,10 +402,15 @@ function viewNew() {
     '<div class="field"><label for="f-title">스터디 이름</label><input id="f-title" class="text" data-d="title" maxlength="40" value="' + esc(draft.title) + '"' + desc("title") + '><p class="hint t-caption1" id="hint-title">2~40자. 무엇을 공부하는지 이름에 담아요. 예: pandas로 CSV 분석해 보기</p>' + err("title") + "</div>" +
     '<div class="field" role="group" aria-labelledby="l-days"' + gdesc("days") + '><span class="label" id="l-days">진행 요일</span><div class="chips">' +
       R.DAYS.map((d) => '<button type="button" class="chip" data-pick="days" data-val="' + d + '" aria-pressed="' + draft.days.includes(d) + '">' + d + "</button>").join("") +
-      '</div><p class="hint t-caption1" id="hint-days"><span id="perWeekLive" aria-live="polite">' + perWeekText(draft.days.length) + "</span> 10/19부터 진행해요.</p>" + err("days") + "</div>" +
+      '</div><p class="hint t-caption1" id="hint-days"><span id="perWeekLive" aria-live="polite">' + perWeekText(draft.days.length) + "</span></p>" + err("days") + "</div>" +
     '<div class="field" role="group" aria-labelledby="l-times"' + gdesc("times") + '><span class="label" id="l-times">진행 시간대 <span class="note t-caption1">(선택)</span></span><div class="chips" id="timeChips">' +
       timeChips("times", R.timesForDays(draft.days), draft.times, NEED_DAYS) +
       '</div><p class="hint t-caption1" id="hint-times">여러 개 골라도 돼요. 고르지 않으면 ‘시간은 모여서 정해요’로 보여요.</p>' + err("times") + "</div>" +
+    '<div class="field" role="group" aria-labelledby="l-dates" aria-describedby="hint-dates"><span class="label" id="l-dates">일정 <span class="note t-caption1">(선택)</span></span><div class="dates">' +
+      [["deadline", "모집 마감일", true], ["startDate", "스터디 시작일", false], ["endDate", "스터디 종료일", true]].map(([k, label, fromToday]) =>
+        '<div class="field"><label for="f-' + k + '" class="t-label1">' + label + '</label><input type="date" id="f-' + k + '" class="text" data-d="' + k + '" value="' + esc(draft[k]) + '"' + (fromToday ? ' min="' + R.kstToday() + '"' : "") +
+        (derrors[k] ? ' aria-invalid="true" aria-describedby="err-' + k + '"' : "") + ">" + err(k) + "</div>").join("") +
+      '</div><p class="hint t-caption1" id="hint-dates">모집 마감일 당일까지 신청을 받고, 다음 날부터 자동으로 마감돼요. 비워 두면 모여서 정해요.</p></div>' +
     '<div class="field" role="group" aria-labelledby="l-mode"' + gdesc("mode") + '><span class="label" id="l-mode">진행 방식</span><div class="chips">' +
       R.MODES.map((x) => '<button type="button" class="chip" data-pick="mode" data-val="' + esc(x) + '" aria-pressed="' + (draft.mode === x) + '">' + esc(x) + "</button>").join("") +
       '</div><p class="hint t-caption1" id="hint-mode">온라인은 ZEP에서 만나고, 오프라인은 회의실을 예약해요.</p>' + err("mode") + "</div>" +
@@ -404,7 +426,7 @@ function viewNew() {
 function nextSteps(s) {
   return '<section class="card next" aria-labelledby="next-title"><h2 id="next-title" class="t-headline1" tabindex="-1">' + ICON.flag.replace('class="mi"', 'class="mi" style="vertical-align:-4px;margin-right:4px"') + "결성 다음 할 일</h2><ol class=\"t-body2\">" +
     "<li>슬랙 채널을 만들고 함께하는 사람을 모두 초대해요.</li>" +
-    "<li>10/19부터 진행해요. 이 스터디는 " + metaLine(s) + "예요.</li>" +
+    "<li>" + (s.startDate ? md(s.startDate) + "부터 진행해요. " : "") + "이 스터디는 " + metaLine(s) + "예요." + (s.endDate ? " " + md(s.endDate) + "에 끝나요." : "") + "</li>" +
     "<li>주 1회 이상 '10월 ○○팀 스터디 쓰레드'에 인증 사진과 문서화를 남겨요. ZEP은 캠을 켜고 캡처해요.</li>" +
     '<li>오프라인으로 만날 때는 <a href="https://wantedground.vercel.app/" target="_blank" rel="noopener noreferrer">회의실 예약' + ICON.open.replace('class="mi"', 'class="mi" style="width:16px;height:16px;vertical-align:-3px"') + '<span class="sr">(새 창)</span></a>을 해요.</li>' +
     "</ol></section>";
@@ -430,9 +452,10 @@ function leaderBox(s) {
     (pending.length ? '<ul class="rows">' + pending.map((a) => { const p = person(a.personId); if (!p) return ""; return '<li><div class="who"><b>' + esc(p.name) + ' <span class="tag">' + R.ROLE_LABEL[p.role] + "</span></b><small>" + (a.message ? esc(a.message) : "남긴 말 없음") + "</small><small>" + timesSmall(a) + "</small></div>" +
       '<div class="actions"><button type="button" class="btn btn-primary btn-sm" data-act="accept" data-app="' + esc(a.id) + '"' + (full ? " disabled" : "") + ' aria-label="' + esc(p.name) + '님 수락">수락</button><button type="button" class="btn btn-outline btn-sm" data-act="reject" data-app="' + esc(a.id) + '" aria-label="' + esc(p.name) + '님 거절">거절</button></div></li>'; }).join("") + "</ul>"
       : '<p class="note t-body2">아직 대기 중인 신청이 없어요.</p>');
-  if (s.closed) {
+  if (s.closed || closedByDate(s)) {
     const re = check(() => R.reopenStudy(s, S.apps, S.people, s.leaderId));
-    html += '<p class="note t-caption1" style="margin-top:var(--spacing-12)">모집을 마감했어요. ' + (re.ok ? "다시 열면 새 신청을 받아요." : esc(re.reason)) + "</p>" +
+    const why = closedByDate(s) ? "모집 마감일(" + md(s.deadline) + ")이 지나 신청을 받지 않아요. " : "모집을 마감했어요. ";
+    html += '<p class="note t-caption1" style="margin-top:var(--spacing-12)">' + why + (re.ok ? (closedByDate(s) ? "다시 열면 마감일을 지우고 새 신청을 받아요." : "다시 열면 새 신청을 받아요.") : esc(re.reason)) + "</p>" +
       (re.ok ? '<div class="actions" style="margin-top:var(--spacing-8)"><button type="button" class="btn btn-outline btn-sm" data-act="reopen" data-study="' + esc(s.id) + '">' + ICON.replay + "다시 열기</button></div>" : "");
   } else {
     html += '<div class="actions" style="margin-top:var(--spacing-16)">' + syncBtn("새 신청 불러오기") + '<button type="button" class="btn btn-outline btn-sm" data-act="close" data-study="' + esc(s.id) + '">모집 마감하기</button></div>';
@@ -494,9 +517,9 @@ function viewDetail(id) {
     '<a class="btn btn-outline btn-sm" href="' + (isLeader ? "#/new" : "#/") + '">' + (isLeader ? ICON.add + "새 스터디 열기" : "스터디 목록") + "</a></div></div>" : "";
 
   return '<header class="page-head"><a class="more t-label1" href="#/">' + ICON.back + '목록으로</a>' +
-    '<div class="actions" style="margin-top:var(--spacing-12)">' + statusTag(s) + "</div>" +
+    '<div class="actions" style="margin-top:var(--spacing-12)">' + statusTag(s) + dueTag(s) + "</div>" +
     '<h1 class="t-title1" style="margin-top:var(--spacing-8)">' + esc(s.title) + "</h1>" +
-    "<p>" + metaLine(s) + " · 모집자 " + (leader ? esc(leader.name) + "(" + R.ROLE_LABEL[leader.role] + ")" : "알 수 없음") + "</p>" +
+    "<p>" + metaLine(s) + (dateLine(s) ? " · " + dateLine(s) : "") + " · 모집자 " + (leader ? esc(leader.name) + "(" + R.ROLE_LABEL[leader.role] + ")" : "알 수 없음") + "</p>" +
     '<div class="goal-box t-body2"><b>목표</b> ' + esc(s.goal) + "</div>" + canceledNote + "</header>" +
     '<div class="two">' + membersBox + '<div class="stack">' + side + "</div></div>";
 }
@@ -520,7 +543,7 @@ function viewMy() {
   const openedBox = '<section class="sec" aria-labelledby="opened-title"><div class="sec-head"><h2 id="opened-title" class="t-title3" tabindex="-1">내가 연 스터디</h2><a class="btn btn-primary btn-sm" href="#/new">' + ICON.add + "스터디 열기</a></div>" +
     (opened.length ? '<ul class="rows card">' + opened.map((s) => {
       const pend = s.canceled ? 0 : S.apps.filter((a) => a.studyId === s.id && a.status === "pending").length;
-      return '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + '</a><small>' + metaLine(s) + " · " + R.members(s, S.apps, S.people).length + "/" + s.capacity + "명</small></div>" +
+      return '<li><div class="who"><a href="#/s/' + encodeURIComponent(s.id) + '">' + esc(s.title) + '</a><small>' + metaLine(s) + (dateLine(s) ? " · " + dateLine(s) : "") + " · " + R.members(s, S.apps, S.people).length + "/" + s.capacity + "명</small></div>" +
         '<div class="actions">' + (pend ? '<span class="tag tag-brand" style="font-weight:600">대기 ' + pend + "명</span>" : "") + statusTag(s) + rowAction(s) + "</div></li>";
     }).join("") + "</ul>"
       : '<div class="empty">아직 연 스터디가 없어요.<div class="actions" style="justify-content:center;margin-top:var(--spacing-12)"><a class="btn btn-primary btn-sm" href="#/new">스터디 열기</a></div></div>') + "</section>";
@@ -657,10 +680,11 @@ document.addEventListener("click", (e) => {
     if (b.dataset.act === "reopen") {
       const s = study(b.dataset.study);
       if (!s) return;
+      const byDate = closedByDate(s);
       run(b, "여는 중…", async () => {
         await api("PATCH", "studies/" + encodeURIComponent(s.id), { closed: false });
         refresh(onMy() ? "#opened-title" : "#pend-title");
-        toast("‘" + s.title + "’ 모집을 다시 열었어요. 새 신청을 받아요.");
+        toast("‘" + s.title + "’ 모집을 다시 열었어요. " + (byDate ? "지난 마감일은 지웠어요." : "새 신청을 받아요."));
       });
       return;
     }
@@ -744,8 +768,9 @@ document.addEventListener("submit", (e) => {
     }
     if (f.id === "studyForm") {
       const m = me();
-      const s = { title: String(draft.title).trim(), days: R.DAYS.filter((d) => draft.days.includes(d)), times: R.TIMES.filter((t) => draft.times.includes(t)), mode: draft.mode, capacity: Number(draft.capacity), goal: String(draft.goal).trim() };
-      derrors = R.validateStudy(s);
+      const s = { title: String(draft.title).trim(), days: R.DAYS.filter((d) => draft.days.includes(d)), times: R.TIMES.filter((t) => draft.times.includes(t)), mode: draft.mode, capacity: Number(draft.capacity), goal: String(draft.goal).trim(),
+        deadline: draft.deadline || null, startDate: draft.startDate || null, endDate: draft.endDate || null };
+      derrors = R.validateStudy(s, R.kstToday());
       if (Object.keys(derrors).length) { rerender(); toast("입력한 내용을 확인해 주세요."); focusFirstError(document.getElementById("studyForm")); return; }
       if (!m) { toast(account() ? "먼저 이름과 직군을 저장해 주세요." : "먼저 구글로 로그인해 주세요."); const g = app.querySelector("#pf-title"); if (g) g.scrollIntoView({ block: "center" }); return; }
       run(submitBtn(f), "여는 중…", async () => {
