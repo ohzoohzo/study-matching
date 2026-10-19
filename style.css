@@ -1,0 +1,129 @@
+/* 스터디 매칭 공통 스타일
+   원티드 디자인 시스템 Montage(MIT)의 theme.css 토큰 위에 메뉴·버튼·칩·태그·카드·입력창·상태·푸터를 만들어요.
+   페이지에서는 이 파일 하나만 불러와요: <link rel="stylesheet" href="/style.css">
+   색·글자·간격·모서리·그림자는 Montage 변수(var(--semantic-…), var(--typography-…), var(--spacing-…), var(--radius-…))
+   또는 아래 :root 별칭만 써요. 페이지에서 #fff 같은 색을 직접 쓰지 않아요. */
+
+@import url("https://cdn.jsdelivr.net/npm/@montage-ui/core@4.1.3/dist/theme.css");
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css");
+
+:root {
+  --fg: var(--semantic-foreground-neutral-primary);
+  --fg-2: var(--semantic-foreground-neutral-secondary);
+  --fg-3: var(--semantic-foreground-neutral-tertiary);
+  --bg: var(--semantic-background-neutral-primary);
+  --bg-2: var(--semantic-background-neutral-secondary);
+  --line: var(--semantic-line-neutral-secondary);
+  --line-soft: var(--semantic-line-neutral-tertiary);
+  --brand: var(--semantic-surface-brand-primary);
+  --brand-strong: var(--semantic-surface-brand-strong);
+  --brand-fg: var(--semantic-foreground-brand-primary);
+  --brand-subtle: var(--semantic-surface-brand-subtle);
+  --card: var(--semantic-surface-elevated-primary);
+  --gutter: clamp(var(--spacing-20), 5vw, var(--spacing-40));
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: var(--typography-body1-fontSize); line-height: var(--typography-body1-lineHeight); letter-spacing: var(--typography-body1-letterSpacing); word-break: keep-all; }
+a { color: inherit; }
+button, input, textarea, select { font: inherit; color: inherit; }
+.wrap { max-width: calc(1040px + 2 * var(--gutter)); margin: 0 auto; padding: 0 var(--gutter); }
+/* 아이콘: Material Icons를 SVG로 넣어요 (이모지는 쓰지 않아요) */
+.mi { width: 20px; height: 20px; flex: none; fill: currentColor; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* 글자 단계 (Montage typography) */
+.t-title1 { font-size: var(--typography-title1-fontSize); line-height: var(--typography-title1-lineHeight); letter-spacing: var(--typography-title1-letterSpacing); font-weight: var(--typography-title1-weight-bold); }
+.t-title2 { font-size: var(--typography-title2-fontSize); line-height: var(--typography-title2-lineHeight); letter-spacing: var(--typography-title2-letterSpacing); font-weight: var(--typography-title2-weight-bold); }
+.t-title3 { font-size: var(--typography-title3-fontSize); line-height: var(--typography-title3-lineHeight); letter-spacing: var(--typography-title3-letterSpacing); font-weight: var(--typography-title3-weight-bold); }
+.t-heading2 { font-size: var(--typography-heading2-fontSize); line-height: var(--typography-heading2-lineHeight); letter-spacing: var(--typography-heading2-letterSpacing); font-weight: var(--typography-heading2-weight-bold); }
+.t-headline1 { font-size: var(--typography-headline1-fontSize); line-height: var(--typography-headline1-lineHeight); letter-spacing: var(--typography-headline1-letterSpacing); font-weight: var(--typography-headline1-weight-bold); }
+.t-body2 { font-size: var(--typography-body2-fontSize); line-height: var(--typography-body2-lineHeight); letter-spacing: var(--typography-body2-letterSpacing); }
+.t-label1 { font-size: var(--typography-label1-fontSize); line-height: var(--typography-label1-lineHeight); letter-spacing: var(--typography-label1-letterSpacing); }
+.t-caption1 { font-size: var(--typography-caption1-fontSize); line-height: var(--typography-caption1-lineHeight); letter-spacing: var(--typography-caption1-letterSpacing); }
+
+/* 상단 메뉴 */
+.nav { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line-soft); }
+.nav .wrap { display: flex; align-items: center; gap: var(--spacing-24); height: 60px; }
+.brand { display: flex; align-items: center; flex: none; gap: var(--spacing-8); white-space: nowrap; text-decoration: none; font-weight: 700; font-size: var(--typography-headline1-fontSize); }
+.brand svg { width: 28px; height: 28px; flex: none; }
+.nav ul { display: flex; margin-left: auto; gap: var(--spacing-4); margin: 0; padding: 0; list-style: none; overflow-x: auto; scrollbar-width: none; }
+.nav ul::-webkit-scrollbar { display: none; }
+.nav li a { display: flex; align-items: center; height: 60px; padding: 0 var(--spacing-10); color: var(--fg-2); text-decoration: none; font-weight: 500; white-space: nowrap; box-shadow: inset 0 -2px 0 transparent; transition: color .15s, box-shadow .15s; }
+.nav li a:hover { color: var(--fg); }
+.nav li a[aria-current="page"] { color: var(--fg); font-weight: 600; box-shadow: inset 0 -2px 0 var(--fg); }
+
+/* 포커스 */
+a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: var(--radius-8); }
+
+/* 페이지 머리 */
+.page-head { padding: var(--spacing-48) 0 var(--spacing-24); }
+.page-head h1 { margin: 0 0 var(--spacing-8); }
+.page-head p { margin: 0; color: var(--fg-2); }
+
+/* 버튼 */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--spacing-6); height: 48px; padding: 0 var(--spacing-20); border: 0; border-radius: var(--radius-12); background: none; font-weight: 600; text-decoration: none; cursor: pointer; transition: background .15s, transform .1s; }
+.btn:active { transform: scale(.98); }
+.btn-sm { height: 36px; padding: 0 var(--spacing-14); border-radius: var(--radius-10); font-size: var(--typography-label1-fontSize); }
+.btn-primary { background: var(--brand); color: #fff; }
+.btn-primary:hover { background: var(--brand-strong); }
+.btn-outline { border: 1px solid var(--line); color: var(--fg); }
+.btn-outline:hover { background: var(--semantic-surface-neutral-tertiary); }
+.btn[disabled] { opacity: .4; cursor: default; }
+
+/* 칩: 필터·태그. 고른 칩은 aria-pressed="true" */
+.chips { display: flex; flex-wrap: wrap; gap: var(--spacing-6); }
+.chip { display: inline-flex; align-items: center; gap: var(--spacing-4); height: 36px; padding: 0 var(--spacing-14); border: 1px solid var(--line); border-radius: var(--radius-full); background: var(--bg); color: var(--fg-2); font-size: var(--typography-label1-fontSize); font-weight: 500; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s, border-color .15s; }
+.chip:hover { background: var(--semantic-surface-neutral-tertiary); }
+.chip[aria-pressed="true"] { border-color: var(--fg); background: var(--fg); color: var(--bg); }
+.tag { display: inline-flex; align-items: center; padding: var(--spacing-2) var(--spacing-8); border-radius: var(--radius-8); background: var(--semantic-surface-neutral-secondary); color: var(--fg-2); font-size: var(--typography-caption1-fontSize); line-height: var(--typography-caption1-lineHeight); }
+.tag-brand { background: var(--brand-subtle); color: var(--brand-fg); }
+.tag-negative { background: var(--semantic-surface-negative-primary); color: var(--semantic-foreground-negative-primary); font-weight: 600; }
+
+/* 카드 */
+.card { padding: var(--spacing-20); border: 1px solid var(--line-soft); border-radius: var(--radius-16); background: var(--card); }
+a.card, button.card { display: block; width: 100%; text-align: left; text-decoration: none; cursor: pointer; transition: box-shadow .2s, border-color .2s, transform .2s; }
+a.card:hover, button.card:hover { border-color: var(--line); box-shadow: var(--semantic-elevation-shadow-normal-medium); transform: translateY(-2px); }
+.card-elevated { border-radius: var(--radius-20); box-shadow: var(--semantic-elevation-shadow-normal-medium); }
+
+/* 입력창 */
+.input { display: flex; align-items: center; gap: var(--spacing-8); height: 48px; padding: 0 var(--spacing-14); border: 1px solid var(--line); border-radius: var(--radius-12); background: var(--bg); }
+.input:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px var(--semantic-line-brand-focus); }
+.input input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; }
+.input .mi { color: var(--fg-3); }
+textarea.field { width: 100%; padding: var(--spacing-12) var(--spacing-14); border: 1px solid var(--line); border-radius: var(--radius-12); background: var(--bg); resize: vertical; }
+textarea.field:focus { outline: 0; border-color: var(--brand); box-shadow: 0 0 0 3px var(--semantic-line-brand-focus); }
+
+/* 섹션 */
+.sec { padding: var(--spacing-40) 0; }
+.sec-head { display: flex; justify-content: space-between; align-items: center; gap: var(--spacing-12); margin-bottom: var(--spacing-20); }
+.sec-head h2 { margin: 0; }
+.more { display: inline-flex; align-items: center; gap: var(--spacing-2); color: var(--fg-3); text-decoration: none; }
+.more:hover { color: var(--fg); }
+.more .mi { width: 18px; height: 18px; }
+.empty { padding: var(--spacing-40) var(--spacing-20); border: 1px dashed var(--line); border-radius: var(--radius-16); color: var(--fg-3); text-align: center; }
+
+/* 푸터 */
+.foot { margin-top: var(--spacing-40); padding: var(--spacing-32) 0 var(--spacing-48); background: var(--bg-2); color: var(--fg-3); }
+.foot .wrap { display: flex; justify-content: space-between; gap: var(--spacing-12); flex-wrap: wrap; }
+.foot b { color: var(--fg-2); }
+
+/* 좁은 화면: A안 링크는 푸터 옆으로 숨기고 탭에 자리를 줘요 */
+@media (max-width: 900px) {
+  }
+/* 상태: 불러오는 중 · 오류 · 빈 상태 (화면마다 세 가지를 모두 만들어요) */
+@keyframes shimmer { from { background-position: -200px 0; } to { background-position: 200px 0; } }
+.skeleton { border-radius: var(--radius-12); background: linear-gradient(90deg, var(--semantic-surface-neutral-tertiary), var(--semantic-surface-neutral-secondary), var(--semantic-surface-neutral-tertiary)); background-size: 400px 100%; animation: shimmer 1.2s linear infinite; }
+.alert { display: flex; align-items: flex-start; gap: var(--spacing-10); padding: var(--spacing-16); border-radius: var(--radius-12); background: var(--semantic-surface-negative-primary); color: var(--semantic-foreground-negative-strong); }
+.alert .mi { margin-top: 2px; }
+
+@media (max-width: 560px) {
+  .nav .wrap { gap: var(--spacing-12); }
+  .brand b { display: none; }
+  .t-title1 { font-size: var(--typography-title2-fontSize); line-height: var(--typography-title2-lineHeight); }
+  .page-head { padding-top: var(--spacing-32); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn, .chip, a.card, button.card, .nav li a { transition: none; }
+  .skeleton { animation: none; }
+}
