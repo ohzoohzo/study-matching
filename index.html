@@ -102,6 +102,7 @@
   .tag-del:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
   .tag-del .mi { width: 16px; height: 16px; }
   .tag-text { flex: 1 1 140px; min-width: 0; height: 34px; padding: 0 var(--spacing-4); border: 0; outline: 0; background: none; }
+  .tag-text:focus-visible { outline: 0; } /* 포커스는 바깥 상자(.tag-input:focus-within)가 보여 줘요 */
   .tag-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-6); margin-top: var(--spacing-8); }
   .tag-suggest:empty { display: none; }
   .chip-sm { height: 32px; padding: 0 var(--spacing-10); }
