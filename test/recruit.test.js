@@ -414,3 +414,50 @@ test("알림: 모집 취소는 수락된 사람과 대기 중인 사람에게만
 test("알림: 모르는 일이면 아무에게도 보내지 않아요", () => {
   assert.deepEqual(push("closed", "x2"), []);
 });
+
+test("해시태그 다듬기: 앞의 #·＃와 모든 띄어쓰기를 지우고, 대소문자는 그대로 둬요", () => {
+  assert.equal(R.normalizeTag("  #프리온보딩 7기 "), "프리온보딩7기");
+  assert.equal(R.normalizeTag("＃＃React"), "React");
+  assert.equal(R.normalizeTag(null), "");
+  assert.equal(R.tagKey("#React"), "react");
+});
+
+test("해시태그 정리: 빈 것은 빼고, 대소문자만 다른 중복은 먼저 적은 것만 남겨요", () => {
+  assert.deepEqual(R.cleanTags(["React", "#react", " ", "주말", "REACT"]), ["React", "주말"]);
+  assert.deepEqual(R.cleanTags(undefined), []);
+  assert.deepEqual(R.tagsOf({}), []);
+  assert.deepEqual(R.tagsOf({ tags: ["a"] }), ["a"]);
+});
+
+test("해시태그 검사: 선택 칸이고, 10개·20자·글자·숫자·_만 돼요", () => {
+  assert.equal(R.validateTags(undefined), "");
+  assert.equal(R.validateTags(null), "");
+  assert.equal(R.validateTags([]), "");
+  assert.equal(R.validateTags(["프리온보딩7기", "front_end", "React"]), "");
+  assert.equal(R.validateTags(["  #프리온보딩 7기"]), ""); // #과 띄어쓰기는 다듬은 뒤에 봐요
+  assert.equal(R.validateTags("7기"), "해시태그를 다시 확인해 주세요.");
+  assert.equal(R.validateTags([7]), "해시태그를 다시 확인해 주세요.");
+  assert.equal(R.validateTags(Array.from({ length: 11 }, (_, i) => "t" + i)), "해시태그는 10개까지 달 수 있어요.");
+  assert.equal(R.validateTags(Array.from({ length: 11 }, () => "같은태그")), ""); // 정리하면 1개
+  assert.equal(R.validateTags(["가".repeat(20)]), "");
+  assert.equal(R.validateTags(["가".repeat(21)]), "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+  assert.equal(R.validateTags(["<b>"]), "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+  assert.equal(R.validateTags(["c++"]), "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+  assert.equal(R.validateTags(["\u{1F600}"]), "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+});
+
+test("해시태그 입력 나누기: 쉼표와 #에서 나누고, 띄어쓰기는 지워요 (붙여넣기도 돼요)", () => {
+  assert.deepEqual(R.parseTagInput("#a, #b c #d"), ["a", "bc", "d"]);
+  assert.deepEqual(R.parseTagInput("프리온보딩 7기"), ["프리온보딩7기"]);
+  assert.deepEqual(R.parseTagInput("#프리온보딩7기 #프론트엔드, 주말"), ["프리온보딩7기", "프론트엔드", "주말"]);
+  assert.deepEqual(R.parseTagInput(" , # "), []);
+});
+
+test("프로필·스터디 검사에 해시태그가 들어가요 (안 달아도 돼요)", () => {
+  assert.deepEqual(R.validateProfile({ name: "하늘", role: "dev" }), {});
+  assert.deepEqual(R.validateProfile({ name: "하늘", role: "dev", tags: ["7기"] }), {});
+  assert.equal(R.validateProfile({ name: "하늘", role: "dev", tags: ["<b>"] }).tags, "해시태그는 글자·숫자·_로 20자까지 적어 주세요.");
+  const ok = { title: "NumPy 벡터 연산", days: ["화"], mode: "ZEP 온라인", capacity: 4, goal: "반복문을 벡터 연산으로 바꾸기" };
+  assert.deepEqual(R.validateStudy({ ...ok, tags: ["7기"] }), {});
+  assert.equal(R.validateStudy({ ...ok, tags: "7기" }).tags, "해시태그를 다시 확인해 주세요.");
+});

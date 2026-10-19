@@ -37,6 +37,7 @@ study-matching/
 - role은 `dev/design/po/marketing`, status는 `pending/accepted/rejected`, 도메인 5개와 시간대 6개는 `v1/logic.js`의 목록에서만 골라요(자유 입력 없음).
 - 모집 버전(`recruit/`)의 스터디 `times`(진행 시간대)와 신청 `times`(가능한 시간대)는 선택 칸이고, `recruit-logic.js`의 `TIMES`(v1과 같은 6개, 테스트로 확인)에서 고른 요일에 맞는 것만 골라요.
 - 모집 버전의 스터디 일정 `deadline`(모집 마감일)·`startDate`·`endDate`는 선택이고 `"2026-10-25"` 모양의 한국 날짜예요. 날짜가 걸린 규칙(`isOpen`·`studyStatus`·`canApply` 등)은 `today`를 인자로 받아서 테스트에서 날짜를 정해 둘 수 있어요.
+- 모집 버전의 프로필·스터디 `tags`(해시태그)는 선택이고 `#` 없이 저장해요(10개까지, 글자·숫자·_로 20자). 기수도 태그로 적어요. 다듬기·검사·검색은 `recruit-logic.js`의 `normalizeTag`·`validateTags`·`matchesSearch`에서만 해요.
 - 푸시 알림을 누구에게 무엇으로 보낼지는 `recruit-logic.js`의 `pushMessages`에서만 정해요. 푸시 구독(subs)은 공개 목록 state에 넣지 않고, VAPID 비밀키는 환경변수에만 둬요.
 - 모집 버전(`recruit/`)의 신청 status에는 신청자가 대기 중에 취소한 `withdrawn`, 수락된 뒤 스스로 나간 `left`, 모집자가 내보낸 `removed`가 더 있어요(`removed`는 같은 스터디에 다시 신청할 수 없어요). 스터디는 `closed`(마감, 다시 열 수 있음)와 `canceled`(모집 취소, 되돌릴 수 없음)로 상태를 나타내고, 둘 다 지우지 않고 남겨요.
 - 규칙을 바꾸면 `test/logic.test.js`에 테스트를 더하고 `npm test`가 통과해야 PR을 올려요. 특히 아래는 늘 통과해야 해요.
