@@ -632,3 +632,40 @@ test("알림함: 고른 알림이나 모두를 읽음으로 바꿔요 (내 알�
   }
   assert.ok(s);
 });
+
+// ---------- 테스트 알림 (원인 찾기용) ----------
+test("테스트 알림: 로그인한 내 기기들로 보내고, 기기마다 푸시 서버 응답을 돌려줘요", async () => {
+  const call = setup({
+    send: async (s) => {
+      if (s.endpoint.endsWith("/2")) { const e = new Error("push subscription has unsubscribed or expired."); e.statusCode = 410; throw e; }
+      if (s.endpoint.endsWith("/3")) { const e = new Error("the VAPID credentials do not match"); e.statusCode = 403; throw e; }
+      return { statusCode: 201 };
+    },
+  });
+  assert.equal((await call(pushApi, "POST", { body: { test: true } })).status, 401);
+  let r = await call(pushApi, "POST", { token: "tokA", body: { test: true } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.results, []); // 알림을 켠 기기가 없어요
+  for (const n of [1, 2, 3]) await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(n) } });
+  r = await call(pushApi, "POST", { token: "tokA", body: { test: true } });
+  assert.deepEqual(r.body.results, [
+    { host: "fcm.googleapis.com", tail: sub(1).endpoint.slice(-8), ok: true, status: 201, error: "" },
+    { host: "fcm.googleapis.com", tail: sub(2).endpoint.slice(-8), ok: false, status: 410, error: "push subscription has unsubscribed or expired." },
+    { host: "fcm.googleapis.com", tail: sub(3).endpoint.slice(-8), ok: false, status: 403, error: "the VAPID credentials do not match" },
+  ]);
+  assert.deepEqual((await call.store.getSubs("me-g111")).map((x) => x.endpoint), [sub(1).endpoint, sub(3).endpoint]); // 410만 지워요
+  assert.deepEqual((await call(notesApi, "GET", { token: "tokA" })).body.notes, []); // 테스트 알림은 알림함에 쌓지 않아요
+});
+
+test("테스트 알림: 내용에 시험용 표시(test)와 구분용 tag가 있고, 푸시 키가 없으면 503이에요", async () => {
+  const call = setup();
+  await call(pushApi, "POST", { token: "tokA", body: { subscription: sub(1) } });
+  await call(pushApi, "POST", { token: "tokA", body: { test: true } });
+  assert.equal(call.sent.length, 1);
+  assert.equal(call.sent[0].title, "테스트 알림");
+  assert.equal(call.sent[0].test, true);
+  assert.match(call.sent[0].tag, /^test-/);
+  assert.equal(call.sent[0].url, "/#/");
+  const off = setup({ noPush: true });
+  assert.equal((await off(pushApi, "POST", { token: "tokA", body: { test: true } })).status, 503);
+});
