@@ -1,0 +1,65 @@
+{
+  "_note": "기획안의 matching_test_data.json이 없어서 만든 가정 데이터예요. mainTimes는 그 도메인을 1순위로 고른 사람들이 가장 많이 고른 시간대 2개, leaderId는 그 도메인을 1순위(없으면 2·3순위)로 고른 PO 중 번호가 가장 작은 사람이에요. slots는 팀 수에 따라 앱이 계산해요.",
+  "teams": [
+    {
+      "id": "t1",
+      "number": 1,
+      "domain": "에듀테크",
+      "mainTimes": [
+        "평일 저녁",
+        "주말 오전"
+      ],
+      "leaderId": "m11"
+    },
+    {
+      "id": "t2",
+      "number": 2,
+      "domain": "에듀테크",
+      "mainTimes": [
+        "평일 저녁",
+        "주말 오전"
+      ],
+      "leaderId": "m14"
+    },
+    {
+      "id": "t3",
+      "number": 3,
+      "domain": "헬스케어",
+      "mainTimes": [
+        "평일 낮",
+        "평일 밤"
+      ],
+      "leaderId": "m02"
+    },
+    {
+      "id": "t4",
+      "number": 4,
+      "domain": "커머스",
+      "mainTimes": [
+        "주말 오전",
+        "주말 저녁"
+      ],
+      "leaderId": "m28"
+    },
+    {
+      "id": "t5",
+      "number": 5,
+      "domain": "라이프스타일",
+      "mainTimes": [
+        "주말 오전",
+        "주말 오후"
+      ],
+      "leaderId": "m08"
+    },
+    {
+      "id": "t6",
+      "number": 6,
+      "domain": "핀테크",
+      "mainTimes": [
+        "평일 밤",
+        "평일 저녁"
+      ],
+      "leaderId": "m31"
+    }
+  ]
+}
