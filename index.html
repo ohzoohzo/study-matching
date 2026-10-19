@@ -45,6 +45,14 @@
   .head-row { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--spacing-16); }
   .head-row > div { min-width: 0; }
 
+  /* 활기 숫자 칸: 값은 크게(비례 숫자), 이름표·설명은 글자색 토큰 */
+  .stats { margin: 0 0 var(--spacing-24); }
+  .stat-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--spacing-12); margin: 0; padding: 0; list-style: none; }
+  .stat { display: grid; align-content: start; gap: var(--spacing-4); min-width: 0; padding: var(--spacing-16); border: 1px solid var(--line-soft); border-radius: var(--radius-16); background: var(--card); }
+  .stat-label { color: var(--fg-2); font-weight: 600; }
+  .stat-value { color: var(--fg-2); }
+  .stat-value b { margin-right: var(--spacing-2); color: var(--fg); font-size: var(--typography-title2-fontSize); line-height: var(--typography-title2-lineHeight); font-weight: 700; }
+  .stat-sub { color: var(--fg-3); }
   /* 필터 */
   .filters { display: grid; gap: var(--spacing-12); margin-bottom: var(--spacing-20); }
   .filters .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-8); }
@@ -138,7 +146,7 @@
   .foot a { color: var(--fg-2); }
   [tabindex="-1"]:focus { outline: none; }
 
-  @media (max-width: 900px) { .studies { grid-template-columns: repeat(2, 1fr); } .two { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .studies { grid-template-columns: repeat(2, 1fr); } .two { grid-template-columns: 1fr; } .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 560px) {
     .studies { grid-template-columns: 1fr; }
     .nav .wrap { flex-wrap: wrap; height: auto; padding-top: var(--spacing-8); row-gap: 0; }

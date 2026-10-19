@@ -479,6 +479,18 @@ function updateResults() {
   count.textContent = countText(list.length);
 }
 
+// 활기 숫자 칸: 사람들이 실제로 쓰고 있다는 걸 숫자로 보여 줘요 (이름은 보여 주지 않아요). 계산은 recruit-logic이 해요.
+function statsRow() {
+  const st = R.activityStats(S.studies, S.apps, S.people);
+  const tile = (label, value, unit, sub) => '<li class="stat"><span class="stat-label t-caption1">' + label + '</span><span class="stat-value"><b>' + value + "</b>" + unit + '</span><span class="stat-sub t-caption1">' + sub + "</span></li>";
+  return '<section class="stats" aria-labelledby="stats-title"><h2 id="stats-title" class="sr">지금 스터디 모집 현황</h2><ul class="stat-row">' +
+    tile("가입한 사람", st.people, "명", R.ROLES.map((r) => r.label + " " + st.roles[r.key]).join(" · ")) +
+    tile("모집 중인 스터디", st.openStudies, "개", "지금 신청할 수 있어요") +
+    tile("스터디에 함께하는 사람", st.members, "명", "모집자와 수락된 사람") +
+    tile("최근 7일 새 스터디", st.newThisWeek, "개", "오늘 연 스터디 포함") +
+    "</ul></section>";
+}
+
 function viewList() {
   const m = me();
   const list = listedStudies();
@@ -491,7 +503,7 @@ function viewList() {
     (m ? "" : '<span id="needMineHint" class="t-caption1 note">로그인하면 쓸 수 있어요.</span>');
 
   return '<header class="page-head head-row"><div><h1 class="t-title1">함께할 스터디를 찾아요</h1><p>스터디 이름·요일·목표를 보고 신청하거나, 직접 스터디를 열어 함께할 사람을 모아요. 6명 이내를 권장해요.</p></div>' +
-    '<a class="btn btn-primary" href="#/new">' + ICON.add + "스터디 열기</a></header>" +
+    '<a class="btn btn-primary" href="#/new">' + ICON.add + "스터디 열기</a></header>" + statsRow() +
     '<section aria-labelledby="list-title"><h2 id="list-title" class="sr">스터디 목록</h2>' +
     '<div class="filters">' + search + '<div class="row" role="group" aria-labelledby="f-view-l"><span class="label t-label1" id="f-view-l">보기</span>' + toggles + "</div></div>" +
     '<div class="count-row"><p class="count t-label1" id="count" role="status" aria-atomic="true">' + countText(list.length) + "</p>" + syncBtn("목록 새로 고침") + "</div>" +
