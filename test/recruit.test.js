@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as R from "../recruit/recruit-logic.js";
+import * as V1 from "../v1/logic.js";
 
 // 테스트에서만 쓰는 데이터예요. 사이트는 빈 목록으로 시작해요.
 const seed = {
@@ -215,4 +216,55 @@ test("목록 정렬: 취소한 스터디는 마감한 스터디보다도 뒤예�
   const studies = seed.studies.map((s) => (s.id === "s2" ? R.cancelStudy(s, "p2", "2026-10-19T18:00") : s)); // s2가 가장 최근
   const order = R.sortStudies(studies, seed.apps, seed.people).map((s) => s.id);
   assert.deepEqual(order.slice(-2), ["s4", "s2"]);
+});
+
+// ---------- 시간대 ----------
+
+test("시간대 목록은 기획안 버전(v1)의 6개와 같아요", () => {
+  assert.deepEqual(R.TIMES, V1.TIMES);
+});
+
+test("시간대: 고른 요일에 맞는 시간대만 골라요 (평일 → 평일 낮·저녁·밤, 주말 → 주말 오전·오후·저녁)", () => {
+  assert.deepEqual(R.timesForDays(["화", "목"]), ["평일 낮", "평일 저녁", "평일 밤"]);
+  assert.deepEqual(R.timesForDays(["토"]), ["주말 오전", "주말 오후", "주말 저녁"]);
+  assert.deepEqual(R.timesForDays(["금", "일"]), R.TIMES);
+  assert.deepEqual(R.timesForDays([]), []);
+});
+
+test("스터디 진행 시간대는 안 골라도 되고, 고르면 목록에 있고 요일에 맞아야 해요", () => {
+  const ok = { title: "NumPy 벡터 연산", days: ["화", "목"], mode: "ZEP 온라인", capacity: 4, goal: "반복문을 벡터 연산으로 바꿔 속도 비교" };
+  assert.deepEqual(R.validateStudy(ok), {}); // 안 고르면 "시간은 모인 뒤 정해요"
+  assert.deepEqual(R.validateStudy({ ...ok, times: [] }), {});
+  assert.deepEqual(R.validateStudy({ ...ok, times: ["평일 밤", "평일 저녁"] }), {});
+  assert.match(R.validateStudy({ ...ok, times: ["새벽"] }).times, /목록/);
+  assert.match(R.validateStudy({ ...ok, times: ["주말 오후"] }).times, /요일/); // 화·목인데 주말
+  assert.match(R.validateStudy({ ...ok, times: "평일 밤" }).times, /목록/);
+});
+
+test("신청할 때 내가 가능한 시간대를 고를 수 있어요 (안 골라도 돼요)", () => {
+  let apps = R.apply(S("s3"), seed.apps, seed.people, "p2", "t1", "", ["평일 밤", "평일 낮", "평일 밤"]); // s3는 월·금
+  assert.deepEqual(apps.find((a) => a.id === "t1").times, ["평일 낮", "평일 밤"]); // 목록 순서, 중복 없이
+  apps = R.apply(S("s3"), seed.apps, seed.people, "p4", "t2");
+  assert.deepEqual(apps.find((a) => a.id === "t2").times, []);
+  assert.throws(() => R.apply(S("s3"), seed.apps, seed.people, "p6", "t3", "", ["주말 오후"]), /요일/);
+  assert.throws(() => R.apply(S("s3"), seed.apps, seed.people, "p6", "t4", "", ["새벽"]), /목록/);
+});
+
+test("겹침 요약: 수락된 사람과 대기 중인 사람이 시간대마다 몇 명인지 세요 (거절·신청 취소는 빼요)", () => {
+  const st = { ...S("s1"), id: "z", capacity: 6 }; // 화·목 → 평일 시간대만
+  const apps = [
+    { id: "q1", studyId: "z", personId: "p1", status: "accepted", times: ["평일 밤", "평일 저녁"] },
+    { id: "q2", studyId: "z", personId: "p2", status: "accepted", times: ["평일 밤"] },
+    { id: "q3", studyId: "z", personId: "p3", status: "pending", times: ["평일 밤", "평일 낮"] },
+    { id: "q4", studyId: "z", personId: "p4", status: "rejected", times: ["평일 낮"] },
+    { id: "q5", studyId: "z", personId: "p6", status: "withdrawn", times: ["평일 낮"] },
+    { id: "q6", studyId: "z", personId: "p7", status: "accepted" }, // 예전 신청: times 없음
+    { id: "q7", studyId: "s2", personId: "p1", status: "accepted", times: ["평일 낮"] }, // 다른 스터디
+  ];
+  assert.deepEqual(R.timeSummary(st, apps), [
+    { time: "평일 낮", accepted: 0, pending: 1 },
+    { time: "평일 저녁", accepted: 1, pending: 0 },
+    { time: "평일 밤", accepted: 2, pending: 1 },
+  ]);
+  assert.deepEqual(R.timeSummary({ ...st, days: [] }, apps), []);
 });

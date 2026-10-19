@@ -15,6 +15,25 @@ export const ROLE_LABEL = Object.fromEntries(ROLES.map((r) => [r.key, r.label]))
 export const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
 export const MODES = ["ZEP 온라인", "오프라인"];
 export const MAX_CAPACITY = 6; // 공지: 6명 이내 권장
+// 시간대는 기획안 버전(v1/logic.js)과 같은 6개예요 (테스트가 같은지 확인해요). 자유 입력은 받지 않아요.
+export const TIMES = ["평일 낮", "평일 저녁", "평일 밤", "주말 오전", "주말 오후", "주말 저녁"];
+const WEEKEND = ["토", "일"];
+
+// 고른 요일에 맞는 시간대: 평일(월~금)이 있으면 평일 셋, 주말(토·일)이 있으면 주말 셋
+export function timesForDays(days = []) {
+  const weekday = days.some((d) => DAYS.includes(d) && !WEEKEND.includes(d));
+  const weekend = days.some((d) => WEEKEND.includes(d));
+  return TIMES.filter((t) => (t.startsWith("평일") ? weekday : weekend));
+}
+// 시간대 검사: 안 골라도 돼요. 고르면 목록에 있고 요일에 맞아야 해요. 틀리면 이유, 맞으면 "" (서버도 써요)
+export function validateTimes(times, days) {
+  if (times == null) return "";
+  if (!Array.isArray(times) || times.some((t) => !TIMES.includes(t))) return "시간대는 목록에서 골라 주세요.";
+  const fit = timesForDays(days);
+  if (times.some((t) => !fit.includes(t))) return "고른 요일에 맞는 시간대를 골라 주세요.";
+  return "";
+}
+const orderTimes = (times) => TIMES.filter((t) => (times || []).includes(t));
 
 // 스터디 등록 입력 검사: 틀린 칸마다 이유를 돌려줘요
 export function validateStudy(s) {
@@ -27,6 +46,9 @@ export function validateStudy(s) {
   else if (days.some((d) => !DAYS.includes(d))) e.days = "요일은 목록에서 골라 주세요.";
   const goal = String(s.goal || "").trim();
   if (goal.length < 5 || goal.length > 80) e.goal = "간단 목표를 5~80자로 적어 주세요.";
+  // 진행 시간대는 안 골라도 돼요 (안 고르면 "시간은 모인 뒤 정해요")
+  const te = validateTimes(s.times, Array.isArray(days) ? days : []);
+  if (te) e.times = te;
   if (!MODES.includes(s.mode)) e.mode = "진행 방식을 골라 주세요.";
   const cap = Number(s.capacity);
   if (!Number.isInteger(cap) || cap < 2 || cap > MAX_CAPACITY) e.capacity = "정원은 2~" + MAX_CAPACITY + "명 사이로 골라 주세요.";
@@ -83,10 +105,22 @@ export function canApply(study, apps, people, personId) {
   return { ok: true };
 }
 
-export function apply(study, apps, people, personId, id, message = "") {
+// 신청할 때 내가 가능한 시간대(선택)를 함께 남겨요. 모집자가 시간을 정할 때 참고해요.
+export function apply(study, apps, people, personId, id, message = "", times = []) {
   const c = canApply(study, apps, people, personId);
   if (!c.ok) throw new Error(c.reason);
-  return apps.concat({ id, studyId: study.id, personId, status: "pending", message: String(message).trim().slice(0, 80) });
+  const te = validateTimes(times, study.days);
+  if (te) throw new Error(te);
+  return apps.concat({ id, studyId: study.id, personId, status: "pending", message: String(message).trim().slice(0, 80), times: orderTimes(times) });
+}
+
+// 겹침 요약(모집자용): 이 스터디 요일에 맞는 시간대마다 가능하다고 한 수락된 사람·대기 중인 사람 수
+export function timeSummary(study, apps) {
+  const mine = apps.filter((a) => a.studyId === study.id && (a.status === "accepted" || a.status === "pending"));
+  return timesForDays(study.days).map((time) => {
+    const can = mine.filter((a) => (a.times || []).includes(time));
+    return { time, accepted: can.filter((a) => a.status === "accepted").length, pending: can.filter((a) => a.status === "pending").length };
+  });
 }
 
 // 수락·거절·마감·다시 열기·모집 취소는 모집자만 할 수 있어요. 서버(/api)도 이 함수로 막아요.
