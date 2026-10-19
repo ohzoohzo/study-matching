@@ -56,7 +56,7 @@ async function loadState() {
 }
 function loginExpired() {
   saveAuth(null); expired = true;
-  pdraft = { name: "", role: "" }; perrors = {};
+  pdraft = emptyP(); perrors = {};
 }
 
 // 다른 사람이 바꾼 내용을 다시 받아요 (화면을 옮길 때, 탭으로 돌아올 때, 새로 고침 버튼)
@@ -112,6 +112,7 @@ const ICON = {
   block: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.902 7.902 0 0 1 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.902 7.902 0 0 1 20 12c0 4.42-3.58 8-8 8z"/></svg>',
   replay: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>',
   bell: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>',
+  close: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>',
   info: '<svg class="mi" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>',
 };
 
@@ -190,11 +191,11 @@ async function onGoogle(resp) {
     if (!S) { boot(); return; } // 목록을 아직 못 불러왔으면 로그인한 채로 다시 불러와요
     if (d.person) {
       S.people = S.people.filter((p) => p.id !== d.person.id).concat(d.person);
-      pdraft = { name: "", role: "" }; closePanel(false); refresh();
+      pdraft = emptyP(); closePanel(false); refresh();
       toast(d.person.name + "님, 다시 오셨네요.");
       return;
     }
-    pdraft = { name: String(d.account.name || "").trim().slice(0, 12), role: pdraft.role, email: d.account.email || "" };
+    pdraft = { name: String(d.account.name || "").trim().slice(0, 12), role: pdraft.role, tags: pdraft.tags || [], email: d.account.email || "" };
     refresh();
     toast("구글 계정을 확인했어요. 직군을 고르고 저장해 주세요.");
   } catch (e) { toast(e.status === 401 ? "구글 로그인을 확인하지 못했어요. 다시 시도해 주세요." : e.message); }
@@ -257,7 +258,8 @@ function pushBox() {
 }
 
 // ---------- 나 (프로필) ----------
-let pdraft = { name: "", role: "" };
+const emptyP = () => ({ name: "", role: "", tags: [] }); // 프로필 초안: 이름·직군·해시태그
+let pdraft = emptyP();
 let perrors = {};
 
 // 로그인 전에는 구글 버튼만 보여 줘요
@@ -265,6 +267,72 @@ const googleBox = () => '<div class="field">' + (expired ? '<p class="note t-cap
   '<div data-gsi></div><p class="hint t-caption1">다음에 같은 계정으로 들어오면 내 프로필이 이어져요.</p></div>';
 // 로그인 전: 구글 버튼 / 처음 로그인: 이름·직군 정하기 / 로그인 뒤: 이름·직군 고치기
 const loginOrProfile = (ctx) => (account() ? profileForm(ctx) : googleBox());
+
+// ---------- 해시태그 입력칸 (프로필 "profile" · 스터디 열기 "study"가 같이 써요) ----------
+// 적고 Enter나 쉼표를 누르면 칩이 돼요. 다듬기·검사는 recruit-logic이 하고, 여기서는 칩 줄만 다시 그려요(입력 중인 글과 포커스는 그대로예요).
+const tagListOf = (key) => (key === "profile" ? pdraft.tags : draft.tags) || [];
+function setTagList(key, list) { if (key === "profile") pdraft.tags = list; else draft.tags = list; }
+const hashText = (t) => "#" + esc(t);
+function tagChipsHtml(tags) {
+  return tags.map((t, i) => '<span class="tag tag-brand tag-chip">' + hashText(t) + '<button type="button" class="tag-del" data-tagdel="' + i + '" aria-label="' + hashText(t) + ' 빼기">' + ICON.close + "</button></span>").join("");
+}
+function tagSuggestHtml(tags) {
+  const list = S ? R.tagSuggestions(S.people, S.studies, { exclude: tags }) : [];
+  if (!list.length) return "";
+  return '<span class="t-caption1 note">많이 쓰는 태그</span>' + list.map((t) => '<button type="button" class="chip chip-sm" data-tagadd="' + esc(t) + '" aria-label="' + hashText(t) + ' 달기">' + ICON.add + hashText(t) + "</button>").join("");
+}
+function tagErrHtml(idp, error) { return error ? '<p class="err t-caption1" id="' + idp + '-err-tags">' + esc(error) + "</p>" : ""; }
+function tagField(key, idp, tags, error) {
+  const desc = idp + "-hint-tags" + (error ? " " + idp + "-err-tags" : "");
+  return '<div class="field" data-tagfield="' + key + '" data-idp="' + idp + '"><label for="' + idp + '-tags">해시태그 <span class="note t-caption1">(선택)</span></label>' +
+    '<div class="tag-input"><span class="tag-chips" data-tagchips>' + tagChipsHtml(tags) + "</span>" +
+    '<input id="' + idp + '-tags" class="tag-text" data-taginput="' + key + '" placeholder="#프리온보딩7기처럼 적고 Enter" enterkeyhint="done" autocomplete="off" aria-describedby="' + desc + '"' + (error ? ' aria-invalid="true"' : "") + "></div>" +
+    '<p class="hint t-caption1" id="' + idp + '-hint-tags">여러 개 달 수 있어요. ' + R.MAX_TAGS + "개까지, 글자·숫자·_만 써요. 기수도 태그로 달아요.</p>" +
+    '<div data-tagerr>' + tagErrHtml(idp, error) + '</div><span class="sr" aria-live="polite" data-taglive></span>' +
+    '<div class="tag-suggest" data-tagsuggest>' + tagSuggestHtml(tags) + "</div></div>";
+}
+// 같은 목록을 쓰는 칸(내 프로필 창과 스터디 열기 화면의 프로필 칸)을 함께 다시 그려요
+function redrawTags(key) {
+  const tags = tagListOf(key);
+  document.querySelectorAll('[data-tagfield="' + key + '"]').forEach((f) => {
+    f.querySelector("[data-tagchips]").innerHTML = tagChipsHtml(tags);
+    f.querySelector("[data-tagsuggest]").innerHTML = tagSuggestHtml(tags);
+  });
+}
+function setTagError(field, error) {
+  const idp = field.dataset.idp, input = field.querySelector("[data-taginput]");
+  field.querySelector("[data-tagerr]").innerHTML = tagErrHtml(idp, error);
+  input.setAttribute("aria-describedby", idp + "-hint-tags" + (error ? " " + idp + "-err-tags" : ""));
+  if (error) input.setAttribute("aria-invalid", "true"); else input.removeAttribute("aria-invalid");
+}
+const tagLive = (field, msg) => { field.querySelector("[data-taglive]").textContent = msg; };
+// 태그 더하기: 틀리면 칸 아래에 이유를 보여 주고 false (입력한 글자는 그대로 둬요)
+function addTagsTo(field, add) {
+  const key = field.dataset.tagfield;
+  const next = R.cleanTags(tagListOf(key).concat(add));
+  const error = R.validateTags(next);
+  setTagError(field, error);
+  if (error) return false;
+  setTagList(key, next); redrawTags(key);
+  tagLive(field, add.map((t) => "#" + R.normalizeTag(t)).join(" ") + " 태그를 달았어요.");
+  return true;
+}
+// 입력칸에 남은 글자를 태그로 더해요. 비어 있으면 true
+function flushTagInput(input) {
+  const add = R.parseTagInput(input.value);
+  if (!add.length) { input.value = ""; return true; }
+  if (!addTagsTo(input.closest("[data-tagfield]"), add)) return false;
+  input.value = "";
+  return true;
+}
+function removeTagAt(field, i) {
+  const key = field.dataset.tagfield, list = tagListOf(key).slice();
+  const [gone] = list.splice(i, 1);
+  if (gone === undefined) return;
+  setTagList(key, list); redrawTags(key); setTagError(field, "");
+  tagLive(field, "#" + gone + " 태그를 뺐어요.");
+  field.querySelector("[data-taginput]").focus();
+}
 
 function profileForm(ctx) {
   const id = (k) => "pf-" + ctx + "-" + k;
@@ -278,15 +346,16 @@ function profileForm(ctx) {
     '<div class="field" role="group" aria-labelledby="' + id("l-role") + '"' + (perrors.role ? ' aria-describedby="' + id("err-role") + '"' : "") + '><span class="label" id="' + id("l-role") + '">직군</span><div class="chips" data-group="prole">' +
       R.ROLES.map((r) => '<button type="button" class="chip" data-pick="prole" data-val="' + r.key + '" aria-pressed="' + (pdraft.role === r.key) + '">' + r.label + "</button>").join("") +
       "</div>" + err("role") + "</div>" +
+    tagField("profile", "pf-" + ctx, pdraft.tags || [], perrors.tags) +
     '<div class="actions"><button class="btn btn-primary btn-sm" type="submit">' + (me() ? "고치기" : "저장하기") + "</button></div></form>";
 }
 
 function renderMe() {
   const m = me();
-  if (m && !pdraft.name && !pdraft.role) pdraft = { name: m.name, role: m.role };
+  if (m && !pdraft.name && !pdraft.role) pdraft = { name: m.name, role: m.role, tags: R.tagsOf(m).slice() };
   document.getElementById("meLabel").textContent = m ? m.name + " · " + R.ROLE_LABEL[m.role] : "로그인";
   mePanel.innerHTML = m
-    ? '<div><h2 class="t-headline1">내 프로필</h2><p class="me-now t-body2"><b>' + esc(m.name) + '</b><span class="tag">' + R.ROLE_LABEL[m.role] + "</span></p></div>" +
+    ? '<div><h2 class="t-headline1">내 프로필</h2><p class="me-now t-body2"><b>' + esc(m.name) + '</b><span class="tag">' + R.ROLE_LABEL[m.role] + "</span>" + R.tagsOf(m).map((t) => '<span class="tag tag-brand">' + hashText(t) + "</span>").join("") + "</p></div>" +
       profileForm("nav") + '<hr class="divider">' + pushBox() + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">로그아웃</button>'
     : account()
       ? '<div><h2 class="t-headline1">이름과 직군 정하기</h2><p class="note t-caption1">저장하면 스터디를 열거나 신청할 수 있어요.</p></div>' + profileForm("nav") + '<hr class="divider"><button type="button" class="btn btn-outline btn-sm" data-act="logout">다른 계정으로 로그인</button>'
@@ -431,12 +500,13 @@ function viewList() {
 }
 
 // ---------- 스터디 열기 ----------
-const emptyDraft = () => ({ title: "", days: [], times: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "", deadline: "", startDate: "", endDate: "" });
+const emptyDraft = () => ({ title: "", days: [], times: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "", deadline: "", startDate: "", endDate: "", tags: null }); // tags: null이면 아직 안 채움 → 내 프로필 태그로 채워요
 let draft = emptyDraft();
 let derrors = {};
 
 function viewNew() {
   const m = me();
+  if (draft.tags === null && m) draft.tags = R.tagsOf(m).slice(); // 새 초안에는 내 프로필 태그를 미리 넣어요
   const err = (k) => (derrors[k] ? '<p class="err t-caption1" id="err-' + k + '">' + esc(derrors[k]) + "</p>" : "");
   const desc = (k) => ' aria-describedby="hint-' + k + (derrors[k] ? " err-" + k : "") + '"' + (derrors[k] ? ' aria-invalid="true"' : "");
   const gdesc = (k) => ' aria-describedby="hint-' + k + (derrors[k] ? " err-" + k : "") + '"';
@@ -464,6 +534,7 @@ function viewNew() {
       [2, 3, 4, 5, 6].filter((n) => n <= R.MAX_CAPACITY).map((n) => '<option value="' + n + '"' + (String(draft.capacity) === String(n) ? " selected" : "") + ">" + n + "명</option>").join("") +
       '</select><p class="hint t-caption1" id="hint-capacity">6명 이내를 권장해요.</p>' + err("capacity") + "</div>" +
     '<div class="field"><label for="f-goal">간단 목표</label><input id="f-goal" class="text" data-d="goal" maxlength="80" value="' + esc(draft.goal) + '"' + desc("goal") + '><p class="hint t-caption1" id="hint-goal">5~80자. 예: 공공데이터 CSV를 읽어 필터·정렬·집계까지 직접 해 보기</p>' + err("goal") + "</div>" +
+    tagField("study", "f", draft.tags || [], derrors.tags) +
     '<div class="actions"><button class="btn btn-primary" type="submit">' + ICON.add + '스터디 열기</button><a class="btn btn-outline" href="#/">취소</a></div>' +
     "</form>";
 }
@@ -649,6 +720,16 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 
 meBtn.addEventListener("click", () => (mePanel.hidden ? openPanel() : closePanel(true)));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !mePanel.hidden) closePanel(true); });
+// 해시태그 입력칸: Enter·쉼표로 더하고, 빈 칸에서 Backspace로 마지막 태그를 빼요. 한글을 조합하는 중에 누른 키는 건드리지 않아요.
+document.addEventListener("keydown", (e) => {
+  const t = e.target;
+  if (!t.dataset || t.dataset.taginput === undefined || e.isComposing || e.keyCode === 229) return;
+  if (e.key === "Enter" || e.key === ",") { e.preventDefault(); flushTagInput(t); }
+  else if (e.key === "Backspace" && !t.value) {
+    const field = t.closest("[data-tagfield]"), n = tagListOf(field.dataset.tagfield).length;
+    if (n) { e.preventDefault(); removeTagAt(field, n - 1); }
+  }
+});
 document.addEventListener("click", (e) => { if (!mePanel.hidden && !mePanel.contains(e.target) && !meBtn.contains(e.target) && !e.target.closest('[data-act="open-me"]')) closePanel(false); });
 
 document.addEventListener("change", (e) => {
@@ -659,6 +740,7 @@ document.addEventListener("input", (e) => {
   const d = e.target.dataset || {};
   if (d.d) draft[d.d] = e.target.value;
   if (d.pf === "name") pdraft.name = e.target.value;
+  if (d.taginput !== undefined && /[,，]/.test(e.target.value) && !e.isComposing) flushTagInput(e.target); // 쉼표를 치거나 붙여넣으면 바로 나눠요
   if (d.search !== undefined) {
     filter.q = e.target.value;
     clearTimeout(searchTimer); searchTimer = setTimeout(updateResults, 120); // 한 글자마다 개수를 읽어 주지 않게 잠깐 모아요
@@ -671,6 +753,15 @@ document.addEventListener("click", (e) => {
   try {
     if (b.dataset.act === "reload") { boot(); return; }
     if (b.dataset.act === "open-me") { openPanel(); return; }
+
+    // 해시태그 입력칸의 칩 빼기·많이 쓰는 태그 더하기 (칩 줄만 다시 그려요)
+    if (b.dataset.tagdel !== undefined) { removeTagAt(b.closest("[data-tagfield]"), Number(b.dataset.tagdel)); return; }
+    if (b.dataset.tagadd !== undefined) {
+      const field = b.closest("[data-tagfield]");
+      addTagsTo(field, [b.dataset.tagadd]);
+      field.querySelector("[data-taginput]").focus();
+      return;
+    }
 
     // 폼 안 칩: 화면을 다시 그리지 않고 눌림 상태만 바꿔요 (입력 중인 글과 포커스가 그대로 남아요)
     if (b.dataset.pick) {
@@ -841,7 +932,7 @@ document.addEventListener("click", (e) => {
         // 같은 기기를 다른 사람이 쓸 수 있어서, 로그아웃하면 이 기기 알림도 꺼요
         const sub = canPush() ? await pushSub().catch(() => null) : null;
         if (sub) { await api("DELETE", "push", { endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
-        saveAuth(null); expired = false; pdraft = { name: "", role: "" }; perrors = {}; pushState = "";
+        saveAuth(null); expired = false; pdraft = emptyP(); perrors = {}; pushState = "";
         try { window.google.accounts.id.disableAutoSelect(); } catch (err) { /* 구글 스크립트가 없어도 로그아웃돼요 */ }
         closePanel(false); refresh(); toast("로그아웃했어요.");
       });
@@ -858,8 +949,11 @@ document.addEventListener("submit", (e) => {
   e.preventDefault();
   const f = e.target;
   try {
+    // 해시태그 입력칸에 남은 글자도 태그로 더해요. 틀리면 저장하지 않고 그 칸으로 가요
+    const ti = f.querySelector("[data-taginput]");
+    if (ti && !flushTagInput(ti)) { ti.focus(); toast("해시태그를 확인해 주세요."); return; }
     if (f.dataset.form === "profile") {
-      const p = { name: pdraft.name.trim(), role: pdraft.role };
+      const p = { name: pdraft.name.trim(), role: pdraft.role, tags: pdraft.tags || [] };
       perrors = R.validateProfile(p);
       const ctx = f.dataset.ctx;
       const root = () => (ctx === "nav" ? mePanel : app);
@@ -878,7 +972,7 @@ document.addEventListener("submit", (e) => {
           perrors = fieldErrors(err); refresh(); toast(err.message); focusFirstError(root());
           return;
         }
-        pdraft = { name: "", role: "" }; perrors = {};
+        pdraft = emptyP(); perrors = {};
         closePanel(false); refresh();
         toast(wasMe ? "프로필을 고쳤어요." : p.name + "님, 반가워요. 이제 스터디를 열거나 신청할 수 있어요.");
         if (ctx === "nav") meBtn.focus();
@@ -888,7 +982,7 @@ document.addEventListener("submit", (e) => {
     if (f.id === "studyForm") {
       const m = me();
       const s = { title: String(draft.title).trim(), days: R.DAYS.filter((d) => draft.days.includes(d)), times: R.TIMES.filter((t) => draft.times.includes(t)), mode: draft.mode, capacity: Number(draft.capacity), goal: String(draft.goal).trim(),
-        deadline: draft.deadline || null, startDate: draft.startDate || null, endDate: draft.endDate || null };
+        deadline: draft.deadline || null, startDate: draft.startDate || null, endDate: draft.endDate || null, tags: draft.tags || [] };
       derrors = R.validateStudy(s, R.kstToday());
       if (Object.keys(derrors).length) { rerender(); toast("입력한 내용을 확인해 주세요."); focusFirstError(document.getElementById("studyForm")); return; }
       if (!m) { toast(account() ? "먼저 이름과 직군을 저장해 주세요." : "먼저 구글로 로그인해 주세요."); const g = app.querySelector("#pf-title"); if (g) g.scrollIntoView({ block: "center" }); return; }
