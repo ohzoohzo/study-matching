@@ -1,3 +1,17 @@
 {
-  "regions": ["hnd1"]
+  "regions": [
+    "hnd1"
+  ],
+  "redirects": [
+    {
+      "source": "/recruit",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/recruit/",
+      "destination": "/",
+      "permanent": false
+    }
+  ]
 }

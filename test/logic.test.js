@@ -2,10 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import * as L from "../logic.js";
+import * as L from "../v1/logic.js";
 
-const members = L.parseMembersCsv(readFileSync(new URL("../data/matching_test_members.csv", import.meta.url), "utf8"));
-const base = JSON.parse(readFileSync(new URL("../data/teams.json", import.meta.url), "utf8")).teams;
+const members = L.parseMembersCsv(readFileSync(new URL("../v1/data/matching_test_members.csv", import.meta.url), "utf8"));
+const base = JSON.parse(readFileSync(new URL("../v1/data/teams.json", import.meta.url), "utf8")).teams;
 let n = 0; const nextId = () => "a" + (++n);
 
 test("테스트 데이터 40명이 모두 프로필 규칙(R1·R2)을 통과해요", () => {
