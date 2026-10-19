@@ -55,9 +55,10 @@ export async function createStudy(store, user, body) {
   const state = await store.load();
   needPerson(state, user);
   const days = Array.isArray(body.days) ? body.days.map(String) : [];
-  const s = { title: text(body.title).trim(), days, mode: text(body.mode), capacity: Number(body.capacity), goal: text(body.goal).trim() };
+  const times = body.times === undefined ? [] : body.times; // 진행 시간대(선택). 검사는 recruit-logic이 해요
+  const s = { title: text(body.title).trim(), days, times, mode: text(body.mode), capacity: Number(body.capacity), goal: text(body.goal).trim() };
   invalid(R.validateStudy(s), "입력한 내용을 확인해 주세요.");
-  const study = { id: await store.nextId("s"), ...s, days: R.DAYS.filter((d) => days.includes(d)), leaderId: user.id, closed: false, createdAt: kstMinute() };
+  const study = { id: await store.nextId("s"), ...s, days: R.DAYS.filter((d) => days.includes(d)), times: R.TIMES.filter((t) => times.includes(t)), leaderId: user.id, closed: false, createdAt: kstMinute() };
   await store.put("studies", study);
   return { study, state: { ...state, studies: state.studies.concat(study) } };
 }
@@ -87,8 +88,11 @@ export async function applyStudy(store, user, body) {
     needPerson(state, user);
     const c = R.canApply(s, state.apps, state.people, user.id);
     if (!c.ok) throw new HttpError(409, c.reason);
+    const times = body.times === undefined ? [] : body.times; // 내가 가능한 시간대(선택)
+    const te = R.validateTimes(times, s.days);
+    if (te) throw new HttpError(400, te, { times: te });
     const appId = await store.nextId("a");
-    const apps = rule(() => R.apply(s, state.apps, state.people, user.id, appId, text(body.message)));
+    const apps = rule(() => R.apply(s, state.apps, state.people, user.id, appId, text(body.message), times));
     const app = apps[apps.length - 1];
     await store.put("apps", app);
     return { app, state: { ...state, apps } };

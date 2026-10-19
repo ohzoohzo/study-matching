@@ -260,7 +260,15 @@ function closePanel(returnFocus) {
 
 // ---------- 화면 공통 ----------
 const perWeekText = (n) => (n ? "주 " + n + "회로 진행해요." : "고른 요일 수만큼 주 횟수가 정해져요.");
-function metaLine(s) { return "주 " + s.days.length + "회 · " + esc(s.days.join("·")) + " · " + esc(s.mode); }
+// 진행 시간대를 고르지 않은 스터디는 "시간은 모여서 정해요"로 보여 줘요
+const timeText = (s) => (s.times && s.times.length ? s.times.join("·") : "시간은 모여서 정해요");
+function metaLine(s) { return "주 " + s.days.length + "회 · " + esc(s.days.join("·")) + " · " + esc(timeText(s)) + " · " + esc(s.mode); }
+// 시간대 칩 (여러 개 고르기). 고를 수 있는 시간대가 없으면 안내를 보여 줘요
+function timeChips(group, list, picked, emptyText) {
+  if (!list.length) return '<p class="note t-caption1">' + emptyText + "</p>";
+  return list.map((t) => '<button type="button" class="chip" data-pick="' + group + '" data-val="' + esc(t) + '" aria-pressed="' + picked.includes(t) + '">' + esc(t) + "</button>").join("");
+}
+const NEED_DAYS = "요일을 먼저 고르면 맞는 시간대가 나와요.";
 
 const STUDY_TAG = { open: ["tag status-open", "모집 중"], full: ["tag", "정원 마감"], closed: ["tag", "마감"], canceled: ["tag tag-negative", "취소됨"] };
 function statusTag(s) {
@@ -360,7 +368,7 @@ function viewList() {
 }
 
 // ---------- 스터디 열기 ----------
-const emptyDraft = () => ({ title: "", days: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "" });
+const emptyDraft = () => ({ title: "", days: [], times: [], mode: "", capacity: String(R.MAX_CAPACITY), goal: "" });
 let draft = emptyDraft();
 let derrors = {};
 
@@ -378,6 +386,9 @@ function viewNew() {
     '<div class="field" role="group" aria-labelledby="l-days"' + gdesc("days") + '><span class="label" id="l-days">진행 요일</span><div class="chips">' +
       R.DAYS.map((d) => '<button type="button" class="chip" data-pick="days" data-val="' + d + '" aria-pressed="' + draft.days.includes(d) + '">' + d + "</button>").join("") +
       '</div><p class="hint t-caption1" id="hint-days"><span id="perWeekLive" aria-live="polite">' + perWeekText(draft.days.length) + "</span> 10/19부터 진행해요.</p>" + err("days") + "</div>" +
+    '<div class="field" role="group" aria-labelledby="l-times"' + gdesc("times") + '><span class="label" id="l-times">진행 시간대 <span class="note t-caption1">(선택)</span></span><div class="chips" id="timeChips">' +
+      timeChips("times", R.timesForDays(draft.days), draft.times, NEED_DAYS) +
+      '</div><p class="hint t-caption1" id="hint-times">여러 개 골라도 돼요. 고르지 않으면 ‘시간은 모여서 정해요’로 보여요.</p>' + err("times") + "</div>" +
     '<div class="field" role="group" aria-labelledby="l-mode"' + gdesc("mode") + '><span class="label" id="l-mode">진행 방식</span><div class="chips">' +
       R.MODES.map((x) => '<button type="button" class="chip" data-pick="mode" data-val="' + esc(x) + '" aria-pressed="' + (draft.mode === x) + '">' + esc(x) + "</button>").join("") +
       '</div><p class="hint t-caption1" id="hint-mode">온라인은 ZEP에서 만나고, 오프라인은 회의실을 예약해요.</p>' + err("mode") + "</div>" +
@@ -399,15 +410,24 @@ function nextSteps(s) {
     "</ol></section>";
 }
 
+// 겹침 요약(모집자만): 시간대마다 가능하다고 한 수락된 사람·대기 중인 사람 수. 진행 시간대는 파랗게, 아무도 안 고른 시간대는 흐리게 보여요
+function overlapBox(s) {
+  const sum = R.timeSummary(s, S.apps);
+  if (!sum.length) return "";
+  return '<div class="overlap"><span class="t-label1" style="font-weight:600">가능한 시간대 겹침</span>' +
+    '<ul class="mix" aria-label="시간대마다 가능한 사람 수">' + sum.map((x) => '<li><span class="tag' + ((s.times || []).includes(x.time) ? " tag-brand" : x.accepted || x.pending ? "" : " zero") + '">' + esc(x.time) + " " + x.accepted + "명" + (x.pending ? " · 대기 " + x.pending : "") + "</span></li>").join("") + "</ul>" +
+    '<p class="note t-caption1">숫자는 수락한 사람이고, 대기 중인 사람은 따로 셌어요. ' + ((s.times || []).length ? "파란 칸이 진행 시간대예요." : "진행 시간대는 아직 정하지 않았어요.") + "</p></div>";
+}
+
 // 모집자 칸: 대기 신청 수락·거절, 마감·다시 열기, 모집 취소
 function leaderBox(s) {
   const head = '<section class="card" aria-labelledby="pend-title"><h2 id="pend-title" class="t-headline1" tabindex="-1">신청한 사람';
   if (s.canceled) return head + '</h2><p class="note t-body2">취소한 스터디라 신청을 더 받지 않아요.</p></section>';
   const pending = S.apps.filter((a) => a.studyId === s.id && a.status === "pending");
   const full = R.seatsLeft(s, S.apps, S.people) === 0;
-  let html = head + ' <span class="t-label1 note" aria-live="polite">대기 ' + pending.length + "명</span></h2>" +
+  let html = head + ' <span class="t-label1 note" aria-live="polite">대기 ' + pending.length + "명</span></h2>" + overlapBox(s) +
     (full && pending.length ? '<p class="note t-caption1">정원이 다 차서 더 수락할 수 없어요. 거절하거나 그대로 둘 수 있어요.</p>' : "") +
-    (pending.length ? '<ul class="rows">' + pending.map((a) => { const p = person(a.personId); if (!p) return ""; return '<li><div class="who"><b>' + esc(p.name) + ' <span class="tag">' + R.ROLE_LABEL[p.role] + "</span></b><small>" + (a.message ? esc(a.message) : "남긴 말 없음") + "</small></div>" +
+    (pending.length ? '<ul class="rows">' + pending.map((a) => { const p = person(a.personId); if (!p) return ""; return '<li><div class="who"><b>' + esc(p.name) + ' <span class="tag">' + R.ROLE_LABEL[p.role] + "</span></b><small>" + (a.message ? esc(a.message) : "남긴 말 없음") + "</small><small>" + timesSmall(a) + "</small></div>" +
       '<div class="actions"><button type="button" class="btn btn-primary btn-sm" data-act="accept" data-app="' + esc(a.id) + '"' + (full ? " disabled" : "") + ' aria-label="' + esc(p.name) + '님 수락">수락</button><button type="button" class="btn btn-outline btn-sm" data-act="reject" data-app="' + esc(a.id) + '" aria-label="' + esc(p.name) + '님 거절">거절</button></div></li>'; }).join("") + "</ul>"
       : '<p class="note t-body2">아직 대기 중인 신청이 없어요.</p>');
   if (s.closed) {
@@ -421,14 +441,22 @@ function leaderBox(s) {
     '<button type="button" class="btn btn-danger btn-sm" data-act="cancel-study" data-study="' + esc(s.id) + '">' + ICON.block + "모집 취소하기</button></div></section>";
 }
 
+// 신청할 때 고르는 내가 가능한 시간대 (다른 스터디로 옮기면 비워요)
+let atimes = { id: "", list: [] };
+const timesSmall = (a) => (a.times && a.times.length ? "가능: " + esc(a.times.join("·")) : "가능한 시간대 안 고름");
+
 // 신청자 칸: 신청하기, 내 신청 상태, 대기 중이면 신청 취소
 function applyBox(s, m) {
+  if (atimes.id !== s.id) atimes = { id: s.id, list: [] };
   const mine = m ? R.myApplication(s, S.apps, m.id) : null;
   const can = R.canApply(s, S.apps, S.people, m ? m.id : null);
   let box = '<section class="card" aria-labelledby="apply-title"><h2 id="apply-title" class="t-headline1" tabindex="-1">신청하기</h2>';
-  if (mine) box += '<p class="t-body2" style="margin:0 0 var(--spacing-12)">내 신청 <span class="tag status-' + mine.status + '">' + STATUS[mine.status] + "</span>" + (mine.message && mine.status !== "withdrawn" ? '<br><small class="note">' + esc(mine.message) + "</small>" : "") + "</p>";
+  if (mine) box += '<p class="t-body2" style="margin:0 0 var(--spacing-12)">내 신청 <span class="tag status-' + mine.status + '">' + STATUS[mine.status] + "</span>" + (mine.status !== "withdrawn" ? (mine.message ? '<br><small class="note">' + esc(mine.message) + "</small>" : "") + '<br><small class="note">' + timesSmall(mine) + "</small>" : "") + "</p>";
   if (can.ok) {
     box += '<form id="applyForm" class="form compact" data-study="' + esc(s.id) + '" novalidate><div class="field"><label for="f-msg">한 줄 메시지 (선택)</label><input id="f-msg" class="text" maxlength="80" aria-describedby="hint-msg" placeholder="예: 차트 화면을 맡아 볼게요"><p class="hint t-caption1" id="hint-msg">80자 안으로 적어요. 모집자에게 보여요.</p></div>' +
+      '<div class="field" role="group" aria-labelledby="l-atimes" aria-describedby="hint-atimes"><span class="label" id="l-atimes">내가 가능한 시간대 <span class="note t-caption1">(선택)</span></span><div class="chips">' +
+      timeChips("atimes", R.timesForDays(s.days), atimes.list, "이 스터디는 고를 수 있는 시간대가 없어요.") +
+      '</div><p class="hint t-caption1" id="hint-atimes">여러 개 골라도 돼요. 모집자가 모일 시간을 정할 때 참고해요.' + (s.times && s.times.length ? " 이 스터디는 " + esc(s.times.join("·")) + "에 모여요." : "") + "</p></div>" +
       '<div class="actions"><button class="btn btn-primary" type="submit">' + (mine && (mine.status === "rejected" || mine.status === "withdrawn") ? "다시 신청하기" : "신청하기") + "</button></div></form>";
   } else {
     box += '<p class="note t-body2" style="margin:0">' + esc(can.reason) + "</p>";
@@ -568,11 +596,18 @@ document.addEventListener("click", (e) => {
     // 폼 안 칩: 화면을 다시 그리지 않고 눌림 상태만 바꿔요 (입력 중인 글과 포커스가 그대로 남아요)
     if (b.dataset.pick) {
       const g = b.dataset.pick, v = b.dataset.val, box = b.parentElement;
-      if (g === "days") {
-        const i = draft.days.indexOf(v);
-        if (i >= 0) draft.days.splice(i, 1); else draft.days.push(v);
+      if (g === "days" || g === "times" || g === "atimes") {
+        const list = g === "atimes" ? atimes.list : draft[g];
+        const i = list.indexOf(v);
+        if (i >= 0) list.splice(i, 1); else list.push(v);
         b.setAttribute("aria-pressed", String(i < 0));
-        const live = document.getElementById("perWeekLive"); if (live) live.textContent = perWeekText(draft.days.length);
+        if (g === "days") {
+          const live = document.getElementById("perWeekLive"); if (live) live.textContent = perWeekText(draft.days.length);
+          // 요일이 바뀌면 맞지 않는 시간대는 빼고, 고를 수 있는 시간대 칩을 다시 그려요 (누른 요일 칩의 포커스는 그대로예요)
+          const fit = R.timesForDays(draft.days);
+          draft.times = draft.times.filter((t) => fit.includes(t));
+          const tc = document.getElementById("timeChips"); if (tc) tc.innerHTML = timeChips("times", fit, draft.times, NEED_DAYS);
+        }
         return;
       }
       if (g === "prole") pdraft.role = v; else draft[g] = v;
@@ -709,7 +744,7 @@ document.addEventListener("submit", (e) => {
     }
     if (f.id === "studyForm") {
       const m = me();
-      const s = { title: String(draft.title).trim(), days: R.DAYS.filter((d) => draft.days.includes(d)), mode: draft.mode, capacity: Number(draft.capacity), goal: String(draft.goal).trim() };
+      const s = { title: String(draft.title).trim(), days: R.DAYS.filter((d) => draft.days.includes(d)), times: R.TIMES.filter((t) => draft.times.includes(t)), mode: draft.mode, capacity: Number(draft.capacity), goal: String(draft.goal).trim() };
       derrors = R.validateStudy(s);
       if (Object.keys(derrors).length) { rerender(); toast("입력한 내용을 확인해 주세요."); focusFirstError(document.getElementById("studyForm")); return; }
       if (!m) { toast(account() ? "먼저 이름과 직군을 저장해 주세요." : "먼저 구글로 로그인해 주세요."); const g = app.querySelector("#pf-title"); if (g) g.scrollIntoView({ block: "center" }); return; }
@@ -733,7 +768,8 @@ document.addEventListener("submit", (e) => {
       if (!me()) { toast(account() ? "먼저 이름과 직군을 저장해 주세요." : "먼저 구글로 로그인해 주세요."); openPanel(); return; }
       const msg = (document.getElementById("f-msg") || {}).value || "";
       run(submitBtn(f), "신청하는 중…", async () => {
-        await api("POST", "apps", { studyId: s.id, message: msg });
+        await api("POST", "apps", { studyId: s.id, message: msg, times: R.TIMES.filter((t) => atimes.id === s.id && atimes.list.includes(t)) });
+        atimes = { id: "", list: [] };
         refresh("#apply-title");
         toast("신청했어요. 모집자가 수락하면 함께해요.");
       });

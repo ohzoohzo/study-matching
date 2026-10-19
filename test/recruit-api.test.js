@@ -340,3 +340,44 @@ test("모집자가 취소하는 순간 들어온 신청은 받지 않아요", as
   const st = (await call(stateApi, "GET")).body;
   assert.equal(st.studies[0].canceled, true);
 });
+
+test("스터디를 열 때 진행 시간대를 고를 수 있고, 안 고르면 빈 목록이에요", async () => {
+  const call = setup();
+  await withPeople(call);
+  let r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, times: ["평일 밤", "평일 낮"] } }); // 화·목
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.study.times, ["평일 낮", "평일 밤"]);
+  r = await call(studiesApi, "POST", { token: "tokA", body: study });
+  assert.deepEqual(r.body.study.times, []);
+  r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, times: ["주말 오후"] } });
+  assert.equal(r.status, 400);
+  assert.match(r.body.fields.times, /요일/);
+  r = await call(studiesApi, "POST", { token: "tokA", body: { ...study, times: ["새벽", 3] } });
+  assert.equal(r.status, 400);
+  assert.match(r.body.fields.times, /목록/);
+});
+
+test("신청할 때 고른 가능한 시간대가 모집자 화면(state)에 보여요", async () => {
+  const call = setup();
+  await withPeople(call);
+  const s = (await call(studiesApi, "POST", { token: "tokA", body: study })).body.study; // 화·목
+  let r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id, message: "저녁 좋아요", times: ["평일 저녁", "평일 밤"] } });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.app.times, ["평일 저녁", "평일 밤"]);
+  r = await call(appsApi, "POST", { token: "tokC", body: { studyId: s.id } });
+  assert.deepEqual(r.body.app.times, []);
+  const st = (await call(stateApi, "GET")).body;
+  assert.deepEqual(st.apps.map((a) => a.times), [["평일 저녁", "평일 밤"], []]);
+});
+
+test("신청 시간대가 목록에 없거나 요일에 맞지 않으면 400이고 신청이 남지 않아요", async () => {
+  const call = setup();
+  await withPeople(call);
+  const s = (await call(studiesApi, "POST", { token: "tokA", body: study })).body.study; // 화·목
+  let r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id, times: ["주말 오전"] } });
+  assert.equal(r.status, 400);
+  assert.match(r.body.fields.times, /요일/);
+  r = await call(appsApi, "POST", { token: "tokB", body: { studyId: s.id, times: "평일 밤" } });
+  assert.equal(r.status, 400);
+  assert.deepEqual((await call(stateApi, "GET")).body.apps, []);
+});
