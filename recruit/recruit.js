@@ -2,7 +2,7 @@
 // 스터디·신청·프로필은 서버(/api/recruit → Vercel Storage의 Redis)에 있어서 여러 사람이 같은 목록을 봐요.
 // 이 브라우저에는 로그인 확인용 구글 토큰만 만료(1시간)까지 둬요. 서버가 쓰기 요청마다 이 토큰을 검증해요.
 // 목록 검색, 모집 마감·다시 열기·모집 취소(모집자), 신청 취소(신청자)는 모두 recruit-logic 규칙을 따르고 서버가 한 번 더 막아요.
-// 프로필 창에서 이 기기 브라우저 푸시 알림을 켜면 /sw.js가 알림을 받아 보여 줘요.
+// 프로필 창에서 이 기기 브라우저 푸시 알림을 켜면 /sw.js가 알림을 받아 보여 줘요. 같은 알림이 메뉴의 알림함(종 아이콘)에도 쌓여요.
 import * as R from "/recruit/recruit-logic.js";
 
 const AUTH_KEY = "study-recruit:auth";
@@ -13,6 +13,8 @@ let loadedAt = 0;
 const app = document.getElementById("app");
 const meBtn = document.getElementById("meBtn");
 const mePanel = document.getElementById("mePanel");
+const noteBtn = document.getElementById("noteBtn");
+const notePanel = document.getElementById("notePanel");
 
 // ---------- 로그인 토큰 (이 브라우저) ----------
 function loadAuth() {
@@ -66,7 +68,7 @@ function syncState(force = false) {
   if (syncing) return syncing;
   const before = JSON.stringify(S);
   syncing = loadState()
-    .then(() => { if (JSON.stringify(S) !== before) softRender(); return true; }, () => false)
+    .then(() => { if (JSON.stringify(S) !== before) softRender(); loadNotes(); return true; }, () => false)
     .finally(() => { syncing = null; });
   return syncing;
 }
@@ -92,6 +94,7 @@ async function boot() {
   app.removeAttribute("aria-busy");
   renderMe();
   route();
+  loadNotes();
 }
 
 // ---------- 도우미 ----------
@@ -190,7 +193,7 @@ async function onGoogle(resp) {
     if (!S) { boot(); return; } // 목록을 아직 못 불러왔으면 로그인한 채로 다시 불러와요
     if (d.person) {
       S.people = S.people.filter((p) => p.id !== d.person.id).concat(d.person);
-      pdraft = { name: "", role: "" }; closePanel(false); refresh();
+      pdraft = { name: "", role: "" }; closePanel(false); refresh(); loadNotes();
       toast(d.person.name + "님, 다시 오셨네요.");
       return;
     }
@@ -212,6 +215,69 @@ function mountGoogle() {
   });
 }
 new MutationObserver(mountGoogle).observe(document.body, { childList: true, subtree: true });
+
+// ---------- 사이트 알림함 ----------
+// 푸시와 같은 알림이 서버 알림함(/api/recruit/notes)에 쌓여요. 메뉴의 종 아이콘에 안 읽은 개수를 보여 주고,
+// 알림을 누르거나 그 스터디 상세를 열면 읽음으로 바꿔요(푸시를 눌러 들어와도 읽음이 돼요).
+let notes = null; // 내 알림 목록 (null: 아직 못 받음)
+let notesError = false;
+async function loadNotes() {
+  if (!me()) { notes = null; notesError = false; renderNoteBtn(); return; }
+  try { notes = (await api("GET", "notes")).notes; notesError = false; }
+  catch (e) { notesError = true; }
+  renderNoteBtn();
+  if (!notePanel.hidden) renderNotes();
+  readOpenStudy();
+}
+function renderNoteBtn() {
+  const n = notes ? R.unreadCount(notes) : 0;
+  noteBtn.hidden = !me();
+  const badge = document.getElementById("noteBadge");
+  badge.hidden = !n;
+  badge.textContent = n > 9 ? "9+" : String(n);
+  noteBtn.setAttribute("aria-label", n ? "알림, 안 읽은 알림 " + n + "개" : "알림");
+}
+const noteTime = (at) => (at ? Number(at.slice(5, 7)) + "/" + Number(at.slice(8, 10)) + " " + at.slice(11, 16) : "");
+function renderNotes() {
+  let body;
+  if (!notes && notesError) body = '<div class="alert" role="alert">' + ICON.warn + '<div><b>알림을 불러오지 못했어요.</b><div><button type="button" class="btn btn-outline btn-sm" data-act="notes-retry" style="margin-top:var(--spacing-8)">다시 불러오기</button></div></div></div>';
+  else if (!notes) body = '<div role="status"><span class="sr">알림을 불러오고 있어요.</span><div class="skeleton" style="height:64px" aria-hidden="true"></div><div class="skeleton" style="height:64px;margin-top:var(--spacing-8)" aria-hidden="true"></div></div>';
+  else if (!notes.length) body = '<div class="empty note-empty">아직 알림이 없어요.<br><span class="t-caption1">새 신청이나 수락 같은 소식이 생기면 여기에 쌓여요.</span></div>';
+  else body = '<ul class="note-list">' + notes.map((n) => '<li><a href="' + esc(n.url) + '" class="inbox-item' + (n.read ? "" : " unread") + '" data-note="' + esc(n.id) + '">' +
+    '<b class="t-label1">' + esc(n.title) + '</b><span class="t-caption1">' + esc(n.body) + '</span><small class="t-caption1">' + noteTime(n.at) + (n.read ? "" : ' · <span class="new">새 알림</span>') + "</small></a></li>").join("") + "</ul>";
+  const unread = notes ? R.unreadCount(notes) : 0;
+  // 받아 둔 목록이 있는데 새로 못 받았으면, 목록은 그대로 두고 한 줄로 알려요
+  const stale = notes && notesError ? '<p class="note t-caption1" role="status">새 알림을 불러오지 못했어요. <button type="button" class="btn btn-outline btn-sm" data-act="notes-retry">다시 불러오기</button></p>' : "";
+  notePanel.innerHTML = '<div class="note-head"><h2 class="t-headline1">알림</h2>' + (unread ? '<button type="button" class="btn btn-outline btn-sm" data-act="notes-read-all">모두 읽음</button>' : "") + "</div>" + stale + body;
+}
+// 읽음으로 바꾸기: 화면에 먼저 반영하고 서버에 알려요 (실패하면 다음에 불러올 때 서버 상태로 돌아와요)
+async function readNotes(ids) {
+  if (!notes || (ids !== "all" && !ids.length)) return;
+  notes = R.markRead(notes, ids);
+  renderNoteBtn();
+  if (!notePanel.hidden) renderNotes();
+  try {
+    notes = (await api("PATCH", "notes", ids === "all" ? { all: true } : { ids })).notes;
+    renderNoteBtn();
+    if (!notePanel.hidden) renderNotes();
+  } catch (e) { /* 다음에 다시 불러오면 맞춰져요 */ }
+}
+// 스터디 상세를 열면 그 스터디의 안 읽은 알림을 읽음으로 바꿔요
+function readOpenStudy() {
+  const [, page, id] = (location.hash || "#/").split("/");
+  if (page === "s" && notes) readNotes(R.unreadFor(notes, decodeURIComponent(id || "")));
+}
+function openNotes() {
+  closePanel(false);
+  notePanel.hidden = false; noteBtn.setAttribute("aria-expanded", "true");
+  renderNotes(); loadNotes();
+  const h = notePanel.querySelector("h2"); if (h) { h.setAttribute("tabindex", "-1"); h.focus(); }
+}
+function closeNotes(returnFocus) {
+  if (notePanel.hidden) return;
+  notePanel.hidden = true; noteBtn.setAttribute("aria-expanded", "false");
+  if (returnFocus) noteBtn.focus();
+}
 
 // ---------- 브라우저 푸시 알림 (이 기기) ----------
 // pushState: "" 확인 전 · unsupported 이 브라우저는 못 받음 · off 서버에 알림 키가 없음 · denied 브라우저 설정에서 막힘
@@ -283,6 +349,7 @@ function profileForm(ctx) {
 
 function renderMe() {
   const m = me();
+  renderNoteBtn();
   if (m && !pdraft.name && !pdraft.role) pdraft = { name: m.name, role: m.role };
   document.getElementById("meLabel").textContent = m ? m.name + " · " + R.ROLE_LABEL[m.role] : "로그인";
   mePanel.innerHTML = m
@@ -294,6 +361,7 @@ function renderMe() {
 }
 
 function openPanel(focus = true) {
+  closeNotes(false);
   mePanel.hidden = false; meBtn.setAttribute("aria-expanded", "true");
   if (me()) checkPush();
   if (focus) { const f = mePanel.querySelector("input, select"); if (f) f.focus(); }
@@ -642,14 +710,25 @@ function focusFirstError(root) {
 // ---------- 동작 ----------
 window.addEventListener("hashchange", () => {
   if (!S) return;
-  closePanel(false); route(); app.focus({ preventScroll: true }); scrollTo(0, 0);
+  closePanel(false); closeNotes(false); route(); app.focus({ preventScroll: true }); scrollTo(0, 0);
+  readOpenStudy();
   syncState();
 });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncState(); });
 
 meBtn.addEventListener("click", () => (mePanel.hidden ? openPanel() : closePanel(true)));
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !mePanel.hidden) closePanel(true); });
-document.addEventListener("click", (e) => { if (!mePanel.hidden && !mePanel.contains(e.target) && !meBtn.contains(e.target) && !e.target.closest('[data-act="open-me"]')) closePanel(false); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || document.getElementById("confirmDlg").open) return;
+  if (!mePanel.hidden) closePanel(true);
+  if (!notePanel.hidden) closeNotes(true);
+});
+document.addEventListener("click", (e) => {
+  if (!mePanel.hidden && !mePanel.contains(e.target) && !meBtn.contains(e.target) && !e.target.closest('[data-act="open-me"]')) closePanel(false);
+  if (!notePanel.hidden && !notePanel.contains(e.target) && !noteBtn.contains(e.target)) closeNotes(false);
+  const a = e.target.closest("a[data-note]"); // 알림을 누르면 읽음으로 바꾸고 그 스터디로 가요
+  if (a) { readNotes([a.dataset.note]); closeNotes(false); }
+});
+noteBtn.addEventListener("click", () => (notePanel.hidden ? openNotes() : closeNotes(true)));
 
 document.addEventListener("change", (e) => {
   if (e.target.dataset && e.target.dataset.d) draft[e.target.dataset.d] = e.target.value;
@@ -807,6 +886,8 @@ document.addEventListener("click", (e) => {
       return;
     }
     if (b.dataset.act === "push-check") { checkPush(); return; }
+    if (b.dataset.act === "notes-retry") { loadNotes(); return; }
+    if (b.dataset.act === "notes-read-all") { readNotes("all"); toast("알림을 모두 읽음으로 바꿨어요."); return; }
     if (b.dataset.act === "push-on") {
       run(b, "켜는 중…", async () => {
         const perm = await Notification.requestPermission();
@@ -841,7 +922,7 @@ document.addEventListener("click", (e) => {
         // 같은 기기를 다른 사람이 쓸 수 있어서, 로그아웃하면 이 기기 알림도 꺼요
         const sub = canPush() ? await pushSub().catch(() => null) : null;
         if (sub) { await api("DELETE", "push", { endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
-        saveAuth(null); expired = false; pdraft = { name: "", role: "" }; perrors = {}; pushState = "";
+        saveAuth(null); expired = false; pdraft = { name: "", role: "" }; perrors = {}; pushState = ""; notes = null; closeNotes(false);
         try { window.google.accounts.id.disableAutoSelect(); } catch (err) { /* 구글 스크립트가 없어도 로그아웃돼요 */ }
         closePanel(false); refresh(); toast("로그아웃했어요.");
       });
@@ -879,7 +960,7 @@ document.addEventListener("submit", (e) => {
           return;
         }
         pdraft = { name: "", role: "" }; perrors = {};
-        closePanel(false); refresh();
+        closePanel(false); refresh(); loadNotes();
         toast(wasMe ? "프로필을 고쳤어요." : p.name + "님, 반가워요. 이제 스터디를 열거나 신청할 수 있어요.");
         if (ctx === "nav") meBtn.focus();
       });
