@@ -35,8 +35,22 @@ export function validateTimes(times, days) {
 }
 const orderTimes = (times) => TIMES.filter((t) => (times || []).includes(t));
 
-// 스터디 등록 입력 검사: 틀린 칸마다 이유를 돌려줘요
-export function validateStudy(s) {
+// 일정: 모집 마감일(deadline)·스터디 시작일(startDate)·종료일(endDate). 모두 선택이고 "2026-10-25"처럼 한국 날짜로 저장해요.
+// 오늘(today)을 바깥에서 받을 수 있게 해서 같은 입력이면 늘 같은 결과가 나와요. 안 주면 지금 한국 날짜를 써요.
+export const kstToday = (now = Date.now()) => new Date(now + 9 * 3600000).toISOString().slice(0, 10);
+const DATE_LABEL = { deadline: "모집 마감일", startDate: "스터디 시작일", endDate: "스터디 종료일" };
+const filled = (v) => v != null && v !== "";
+export const isDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v;
+// 마감까지 남은 날: 오늘 마감이면 0, 지났으면 음수, 마감일이 없으면 null
+export function daysLeft(study, today = kstToday()) {
+  return isDate(study.deadline) ? Math.round((Date.parse(study.deadline) - Date.parse(today)) / 86400000) : null;
+}
+// 마감일 당일까지는 받고, 다음 날부터 마감이에요
+const pastDeadline = (study, today) => isDate(study.deadline) && study.deadline < today;
+const md = (d) => Number(d.slice(5, 7)) + "/" + Number(d.slice(8, 10));
+
+// 스터디 등록 입력 검사: 틀린 칸마다 이유를 돌려줘요. today를 주면(새로 열 때) 지난 마감일·종료일도 막아요
+export function validateStudy(s, today) {
   const e = {};
   const title = String(s.title || "").trim();
   if (title.length < 2 || title.length > 40) e.title = "스터디 이름을 2~40자로 적어 주세요.";
@@ -50,6 +64,13 @@ export function validateStudy(s) {
   const te = validateTimes(s.times, Array.isArray(days) ? days : []);
   if (te) e.times = te;
   if (!MODES.includes(s.mode)) e.mode = "진행 방식을 골라 주세요.";
+  // 일정(선택): 날짜 모양 → 순서(시작일 ≤ 종료일, 모집 마감일 ≤ 종료일) → 오늘이거나 뒤인지
+  Object.keys(DATE_LABEL).forEach((k) => { if (filled(s[k]) && !isDate(s[k])) e[k] = DATE_LABEL[k] + "을 날짜로 골라 주세요."; });
+  const d = (k) => (filled(s[k]) && !e[k] ? s[k] : "");
+  if (d("startDate") && d("endDate") && d("startDate") > d("endDate")) e.endDate = "종료일은 시작일과 같거나 뒤여야 해요.";
+  if (d("deadline") && d("endDate") && d("deadline") > d("endDate")) e.deadline = "모집 마감일은 종료일과 같거나 앞이어야 해요.";
+  if (today && d("deadline") && !e.deadline && d("deadline") < today) e.deadline = "모집 마감일은 오늘이거나 뒤여야 해요.";
+  if (today && d("endDate") && !e.endDate && d("endDate") < today) e.endDate = "종료일은 오늘이거나 뒤여야 해요.";
   const cap = Number(s.capacity);
   if (!Number.isInteger(cap) || cap < 2 || cap > MAX_CAPACITY) e.capacity = "정원은 2~" + MAX_CAPACITY + "명 사이로 골라 주세요.";
   return e;
@@ -71,13 +92,13 @@ export function members(study, apps, people) {
 export function seatsLeft(study, apps, people) {
   return Math.max(0, study.capacity - members(study, apps, people).length);
 }
-export function isOpen(study, apps, people) {
-  return !study.canceled && !study.closed && seatsLeft(study, apps, people) > 0;
+export function isOpen(study, apps, people, today = kstToday()) {
+  return !study.canceled && !study.closed && !pastDeadline(study, today) && seatsLeft(study, apps, people) > 0;
 }
 // 카드·목록에 보여 줄 상태: open 모집 중 · full 정원 마감 · closed 마감 · canceled 취소됨
-export function studyStatus(study, apps, people) {
+export function studyStatus(study, apps, people, today = kstToday()) {
   if (study.canceled) return "canceled";
-  if (study.closed) return "closed";
+  if (study.closed || pastDeadline(study, today)) return "closed";
   return seatsLeft(study, apps, people) > 0 ? "open" : "full";
 }
 
@@ -93,7 +114,7 @@ export function myApplication(study, apps, personId) {
   return apps.filter((a) => a.studyId === study.id && a.personId === personId).slice(-1)[0] || null;
 }
 
-export function canApply(study, apps, people, personId) {
+export function canApply(study, apps, people, personId, today = kstToday()) {
   if (!personId) return { ok: false, reason: "먼저 구글로 로그인해 주세요." };
   if (study.leaderId === personId) return { ok: false, reason: "내가 연 스터디예요." };
   if (study.canceled) return { ok: false, reason: "모집자가 취소한 스터디예요." }; // 함께하던 사람에게도 이 이유가 먼저예요
@@ -101,13 +122,14 @@ export function canApply(study, apps, people, personId) {
   if (mine && mine.status === "accepted") return { ok: false, reason: "이미 함께하고 있어요." };
   if (mine && mine.status === "pending") return { ok: false, reason: "신청했어요. 모집자의 답을 기다려 주세요." };
   if (study.closed) return { ok: false, reason: "모집이 마감됐어요." };
+  if (pastDeadline(study, today)) return { ok: false, reason: "모집 마감일(" + md(study.deadline) + ")이 지났어요." };
   if (seatsLeft(study, apps, people) === 0) return { ok: false, reason: "정원이 다 찼어요." };
   return { ok: true };
 }
 
 // 신청할 때 내가 가능한 시간대(선택)를 함께 남겨요. 모집자가 시간을 정할 때 참고해요.
-export function apply(study, apps, people, personId, id, message = "", times = []) {
-  const c = canApply(study, apps, people, personId);
+export function apply(study, apps, people, personId, id, message = "", times = [], today = kstToday()) {
+  const c = canApply(study, apps, people, personId, today);
   if (!c.ok) throw new Error(c.reason);
   const te = validateTimes(times, study.days);
   if (te) throw new Error(te);
@@ -142,11 +164,13 @@ export function closeStudy(study, personId) {
 }
 
 // 마감한 스터디를 다시 열어요. 정원이 찼으면 다시 열어도 신청을 받을 수 없어서 막아요.
-export function reopenStudy(study, apps, people, personId) {
+// 모집 마감일이 지나서 마감된 스터디는 지난 마감일을 지우고 열어요.
+export function reopenStudy(study, apps, people, personId, today = kstToday()) {
   manage(study, personId);
-  if (!study.closed) throw new Error("마감한 스터디만 다시 열 수 있어요.");
+  const past = pastDeadline(study, today);
+  if (!study.closed && !past) throw new Error("마감한 스터디만 다시 열 수 있어요.");
   if (seatsLeft(study, apps, people) === 0) throw new Error("정원이 다 차서 다시 열어도 신청을 받을 수 없어요.");
-  return { ...study, closed: false };
+  return past ? { ...study, closed: false, deadline: null } : { ...study, closed: false };
 }
 
 // 모집 취소: 되돌릴 수 없어요. 지우지 않고 canceled로 남겨서 목록에서는 빼고, 함께하던 사람에게는 "취소됨"을 보여 줘요.
@@ -178,8 +202,8 @@ export function decide(study, apps, people, appId, status) {
 }
 
 // 목록 정렬: 모집 중인 스터디가 먼저, 취소한 스터디는 맨 뒤, 같은 묶음 안에서는 최근에 연 순서
-export function sortStudies(studies, apps, people) {
-  const rank = (s) => (s.canceled ? 2 : isOpen(s, apps, people) ? 0 : 1);
+export function sortStudies(studies, apps, people, today = kstToday()) {
+  const rank = (s) => (s.canceled ? 2 : isOpen(s, apps, people, today) ? 0 : 1);
   return studies.slice().sort((a, b) => rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt));
 }
 
@@ -194,9 +218,9 @@ export function matchesSearch(study, people, q) {
 }
 
 // 목록에 보여 줄 스터디: 취소한 스터디는 빼고, 검색어·"모집 중만"·"이 직군이 비어 있는 스터디"를 함께 걸러 정렬해요
-export function filterStudies(studies, apps, people, { q = "", openOnly = false, needRole = "" } = {}) {
-  return sortStudies(studies.filter((s) => !s.canceled), apps, people).filter((s) =>
+export function filterStudies(studies, apps, people, { q = "", openOnly = false, needRole = "", today = kstToday() } = {}) {
+  return sortStudies(studies.filter((s) => !s.canceled), apps, people, today).filter((s) =>
     matchesSearch(s, people, q) &&
-    (!openOnly || isOpen(s, apps, people)) &&
+    (!openOnly || isOpen(s, apps, people, today)) &&
     (!needRole || roleMix(s, apps, people).missing.includes(needRole)));
 }

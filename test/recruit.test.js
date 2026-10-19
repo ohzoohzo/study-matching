@@ -268,3 +268,67 @@ test("겹침 요약: 수락된 사람과 대기 중인 사람이 시간대마다
   ]);
   assert.deepEqual(R.timeSummary({ ...st, days: [] }, apps), []);
 });
+
+// ---------- 일정: 모집 마감일·스터디 시작일·종료일 (모두 선택) ----------
+const TODAY = "2026-10-19";
+const base = { title: "NumPy 벡터 연산", days: ["화", "목"], mode: "ZEP 온라인", capacity: 4, goal: "반복문을 벡터 연산으로 바꿔 속도 비교" };
+const v = (dates, today = TODAY) => R.validateStudy({ ...base, ...dates }, today);
+
+test("kstToday: 한국 시간 기준 오늘 날짜예요", () => {
+  assert.equal(R.kstToday(Date.UTC(2026, 9, 19, 14, 59)), "2026-10-19"); // 한국 23:59
+  assert.equal(R.kstToday(Date.UTC(2026, 9, 19, 15, 0)), "2026-10-20"); // 한국 00:00
+});
+
+test("일정은 모두 선택 칸이고, 고르면 날짜 모양이 맞아야 해요", () => {
+  assert.deepEqual(v({}), {});
+  assert.deepEqual(v({ deadline: "", startDate: null, endDate: undefined }), {});
+  assert.deepEqual(v({ deadline: "2026-10-25", startDate: "2026-10-27", endDate: "2026-11-30" }), {});
+  assert.match(v({ deadline: "10/25" }).deadline, /날짜/);
+  assert.match(v({ startDate: "2026-02-30" }).startDate, /날짜/);
+  assert.match(v({ endDate: 20261130 }).endDate, /날짜/);
+});
+
+test("일정 순서: 시작일 ≤ 종료일, 모집 마감일 ≤ 종료일, 마감일·종료일은 오늘이거나 뒤예요", () => {
+  assert.match(v({ startDate: "2026-11-02", endDate: "2026-11-01" }).endDate, /시작일/);
+  assert.match(v({ deadline: "2026-12-01", endDate: "2026-11-30" }).deadline, /종료일/);
+  assert.match(v({ deadline: "2026-10-18" }).deadline, /오늘/);
+  assert.match(v({ endDate: "2026-10-18" }).endDate, /오늘/);
+  assert.deepEqual(v({ deadline: "2026-10-19", startDate: "2026-10-01" }), {}); // 오늘 마감, 이미 시작한 스터디도 돼요
+  assert.deepEqual(v({ deadline: "2026-10-30", startDate: "2026-10-20" }), {}); // 시작한 뒤에도 모을 수 있어요
+  assert.deepEqual(R.validateStudy({ ...base, deadline: "2000-01-01" }), {}); // 오늘을 안 주면(저장된 스터디 확인) 지난 날짜는 보지 않아요
+});
+
+test("마감까지 남은 날(D-day)", () => {
+  assert.equal(R.daysLeft({ deadline: "2026-10-22" }, TODAY), 3);
+  assert.equal(R.daysLeft({ deadline: "2026-10-19" }, TODAY), 0);
+  assert.equal(R.daysLeft({ deadline: "2026-10-18" }, TODAY), -1);
+  assert.equal(R.daysLeft({ deadline: "2026-11-01" }, "2026-10-31"), 1); // 달이 바뀌어도
+  assert.equal(R.daysLeft({}, TODAY), null);
+});
+
+test("모집 마감일이 지나면 신청을 받지 않고 '마감'으로 보여요 (마감일 당일까지는 받아요)", () => {
+  const d = { ...S("s1"), deadline: "2026-10-20" };
+  assert.equal(R.isOpen(d, seed.apps, seed.people, "2026-10-20"), true);
+  assert.equal(R.isOpen(d, seed.apps, seed.people, "2026-10-21"), false);
+  assert.equal(R.studyStatus(d, seed.apps, seed.people, "2026-10-21"), "closed");
+  assert.deepEqual(R.canApply(d, seed.apps, seed.people, "p4", "2026-10-20"), { ok: true });
+  assert.match(R.canApply(d, seed.apps, seed.people, "p4", "2026-10-21").reason, /마감일/);
+  assert.throws(() => R.apply(d, seed.apps, seed.people, "p4", "n1", "", [], "2026-10-21"), /마감일/);
+  assert.deepEqual(R.filterStudies([d], seed.apps, seed.people, { openOnly: true, today: "2026-10-21" }), []);
+  assert.equal(R.filterStudies([d], seed.apps, seed.people, { openOnly: true, today: "2026-10-20" }).length, 1);
+  // 대기 중인 신청은 마감일이 지나도 수락할 수 있어요
+  assert.equal(R.decide(d, seed.apps, seed.people, "x2", "accepted").find((a) => a.id === "x2").status, "accepted");
+});
+
+test("다시 열기: 모집 마감일이 지나 마감된 스터디는 지난 마감일을 지우고 다시 열어요", () => {
+  const d = { ...S("s1"), deadline: "2026-10-18" };
+  assert.throws(() => R.reopenStudy(d, seed.apps, seed.people, "p2", TODAY), /모집자만/);
+  const again = R.reopenStudy(d, seed.apps, seed.people, "p5", TODAY);
+  assert.equal(again.deadline, null);
+  assert.equal(again.closed, false);
+  assert.equal(R.isOpen(again, seed.apps, seed.people, TODAY), true);
+  // 마감일이 남은 열린 스터디는 다시 열 게 없어요. 직접 마감했다가 다시 열면 남은 마감일은 그대로예요
+  const future = { ...S("s1"), deadline: "2026-10-30" };
+  assert.throws(() => R.reopenStudy(future, seed.apps, seed.people, "p5", TODAY), /마감한 스터디만/);
+  assert.equal(R.reopenStudy({ ...future, closed: true }, seed.apps, seed.people, "p5", TODAY).deadline, "2026-10-30");
+});
