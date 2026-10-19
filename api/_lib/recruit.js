@@ -56,8 +56,10 @@ export async function createStudy(store, user, body) {
   needPerson(state, user);
   const days = Array.isArray(body.days) ? body.days.map(String) : [];
   const times = body.times === undefined ? [] : body.times; // 진행 시간대(선택). 검사는 recruit-logic이 해요
-  const s = { title: text(body.title).trim(), days, times, mode: text(body.mode), capacity: Number(body.capacity), goal: text(body.goal).trim() };
-  invalid(R.validateStudy(s), "입력한 내용을 확인해 주세요.");
+  const date = (v) => (v == null || v === "" ? null : v); // 일정(선택): 비우면 null
+  const s = { title: text(body.title).trim(), days, times, mode: text(body.mode), capacity: Number(body.capacity), goal: text(body.goal).trim(),
+    deadline: date(body.deadline), startDate: date(body.startDate), endDate: date(body.endDate) };
+  invalid(R.validateStudy(s, R.kstToday()), "입력한 내용을 확인해 주세요.");
   const study = { id: await store.nextId("s"), ...s, days: R.DAYS.filter((d) => days.includes(d)), times: R.TIMES.filter((t) => times.includes(t)), leaderId: user.id, closed: false, createdAt: kstMinute() };
   await store.put("studies", study);
   return { study, state: { ...state, studies: state.studies.concat(study) } };
