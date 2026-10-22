@@ -329,7 +329,9 @@ function pushTestView() {
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (e) => {
     const d = e.data || {};
-    if (d.type !== "push-received" || !d.test || !pushTest || pushTest.arrived) return;
+    if (d.type !== "push-received") return;
+    loadNotes();
+    if (!d.test || !pushTest || pushTest.arrived) return;
     pushTest.arrived = { secs: ((Date.now() - pushTest.started) / 1000).toFixed(1), error: d.error || "" };
     refreshPushBox();
   });
@@ -883,7 +885,9 @@ window.addEventListener("hashchange", () => {
   readOpenStudy();
   syncState();
 });
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncState(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") syncState().then((synced) => { if (!synced) loadNotes(); });
+});
 
 meBtn.addEventListener("click", () => (mePanel.hidden ? openPanel() : closePanel(true)));
 document.addEventListener("keydown", (e) => {
