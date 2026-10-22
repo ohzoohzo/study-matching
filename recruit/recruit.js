@@ -94,7 +94,7 @@ async function boot() {
   app.removeAttribute("aria-busy");
   renderMe();
   route();
-  loadNotes();
+  loadNotes().then(readOpenStudy);
   if (me() && canPush() && Notification.permission === "granted") checkPush(); // 이 기기 구독을 서버와 맞춰요
 }
 
@@ -195,7 +195,7 @@ async function onGoogle(resp) {
     if (!S) { boot(); return; } // 목록을 아직 못 불러왔으면 로그인한 채로 다시 불러와요
     if (d.person) {
       S.people = S.people.filter((p) => p.id !== d.person.id).concat(d.person);
-      pdraft = emptyP(); closePanel(false); refresh(); loadNotes();
+      pdraft = emptyP(); closePanel(false); refresh(); loadNotes().then(readOpenStudy);
       toast(d.person.name + "님, 다시 오셨네요.");
       return;
     }
@@ -229,7 +229,6 @@ async function loadNotes() {
   catch (e) { notesError = true; }
   renderNoteBtn();
   if (!notePanel.hidden) renderNotes();
-  readOpenStudy();
 }
 function renderNoteBtn() {
   const n = notes ? R.unreadCount(notes) : 0;
@@ -266,6 +265,7 @@ async function readNotes(ids) {
 }
 // 스터디 상세를 열면 그 스터디의 안 읽은 알림을 읽음으로 바꿔요
 function readOpenStudy() {
+  if (document.visibilityState !== "visible") return;
   const [, page, id] = (location.hash || "#/").split("/");
   if (page === "s" && notes) readNotes(R.unreadFor(notes, decodeURIComponent(id || "")));
 }

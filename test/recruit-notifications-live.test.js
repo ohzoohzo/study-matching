@@ -79,6 +79,7 @@ function setup({ initialNotes = [], hash = "#/", signedIn = true, syncResult = f
     function pushBox() { return pushTestView(); }
     globalThis.notifications = {
       load: loadNotes,
+      readOpenStudy,
       setPushTest(value) { pushTest = value; },
       getPushTest() { return pushTest; }
     };
@@ -88,6 +89,11 @@ function setup({ initialNotes = [], hash = "#/", signedIn = true, syncResult = f
   return {
     calls, noteBtn, notePanel, badge, pushBox,
     load: () => context.notifications.load(),
+    setHash(value) { context.location.hash = value; },
+    async readOpenStudy() {
+      context.notifications.readOpenStudy();
+      await new Promise(setImmediate);
+    },
     replaceServerNotes(value) { serverNotes = structuredClone(value); },
     getServerNotes: () => structuredClone(serverNotes),
     setPushTest: (value) => context.notifications.setPushTest(value),
@@ -161,20 +167,62 @@ test("테스트 푸시는 도착 진단을 유지하고 서버에 없는 알림 
   assert.equal(ui.badge.textContent, "1");
 });
 
-test("열어 둔 스터디의 새 알림은 즉시 읽음 처리하고 다른 스터디의 개수는 유지해요", async () => {
+test("상세를 열어 둔 스터디의 새 푸시도 자동으로 읽지 않고 안 읽은 개수를 유지해요", async () => {
   const ui = setup({ hash: "#/s/study-open" });
   await ui.load();
   ui.replaceServerNotes([note("open", { studyId: "study-open" }), note("other")]);
 
   await ui.receive({ type: "push-received", test: false });
 
-  assert.equal(ui.calls.length, 3, "초기 조회와 수신 후 조회·읽음 요청을 보내요");
-  assert.equal(ui.calls[2].method, "PATCH");
-  assert.deepEqual(ui.calls[2].body.ids, ["open"]);
+  assert.equal(ui.calls.length, 2, "초기 조회와 수신 후 조회만 보내요");
+  assert.ok(ui.calls.every((call) => call.method === "GET"));
+  assert.equal(ui.getServerNotes().find((n) => n.id === "open").read, false);
+  assert.equal(ui.getServerNotes().find((n) => n.id === "other").read, false);
+  assert.equal(ui.badge.textContent, "2");
+  assert.equal(ui.badge.hidden, false);
+  assert.match(ui.notePanel.innerHTML, /class="inbox-item unread" data-note="open"/);
+});
+
+test("숨겨진 상세 탭은 알림을 조회하거나 푸시를 받아도 읽음 요청을 보내지 않아요", async () => {
+  const ui = setup({
+    hash: "#/s/study-open",
+    initialNotes: [note("open", { studyId: "study-open" }), note("other")],
+  });
+  await ui.visibility("hidden");
+  await ui.load();
+  await ui.receive({ type: "push-received", test: false });
+
+  assert.equal(ui.calls.length, 2);
+  assert.ok(ui.calls.every((call) => call.method === "GET"));
+  assert.ok(ui.getServerNotes().every((n) => n.read === false));
+  assert.equal(ui.badge.textContent, "2");
+});
+
+test("사용자가 상세에 명시적으로 진입하면 해당 스터디의 알림만 읽음 처리해요", async () => {
+  const ui = setup({ initialNotes: [note("open", { studyId: "study-open" }), note("other")] });
+  await ui.load();
+  ui.setHash("#/s/study-open");
+  await ui.readOpenStudy();
+
+  assert.equal(ui.calls.length, 2);
+  assert.equal(ui.calls[1].method, "PATCH");
+  assert.deepEqual(ui.calls[1].body.ids, ["open"]);
   assert.equal(ui.getServerNotes().find((n) => n.id === "open").read, true);
   assert.equal(ui.getServerNotes().find((n) => n.id === "other").read, false);
   assert.equal(ui.badge.textContent, "1");
   assert.match(ui.notePanel.innerHTML, /class="inbox-item" data-note="open"/);
+});
+
+test("숨겨진 탭에서 상세 읽음 처리를 호출해도 알림을 소비하지 않아요", async () => {
+  const ui = setup({ initialNotes: [note("open", { studyId: "study-open" })] });
+  await ui.load();
+  ui.setHash("#/s/study-open");
+  await ui.visibility("hidden");
+  await ui.readOpenStudy();
+
+  assert.equal(ui.calls.length, 1, "초기 GET 이후 PATCH를 보내지 않아야 해요");
+  assert.equal(ui.getServerNotes()[0].read, false);
+  assert.equal(ui.badge.textContent, "1");
 });
 
 test("로그아웃 상태의 푸시는 인증된 알림 조회를 만들지 않아요", async () => {
