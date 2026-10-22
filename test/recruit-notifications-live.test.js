@@ -18,7 +18,7 @@ const visibilitySource = source.slice(visibilityStart, visibilityEnd);
 
 function element(hidden = false) {
   return {
-    hidden, textContent: "", innerHTML: "", outerHTML: "", attributes: {},
+    hidden, textContent: "", innerHTML: "", attributes: {},
     setAttribute(name, value) { this.attributes[name] = value; },
   };
 }
@@ -32,7 +32,6 @@ function setup({ initialNotes = [], hash = "#/", signedIn = true, syncResult = f
   const noteBtn = element();
   const notePanel = element(false);
   const badge = element(true);
-  const pushBox = element();
   const context = vm.createContext({
     R, noteBtn, notePanel,
     navigator: {
@@ -53,7 +52,6 @@ function setup({ initialNotes = [], hash = "#/", signedIn = true, syncResult = f
       },
       getElementById(id) {
         if (id === "noteBadge") return badge;
-        if (id === "pushBox") return pushBox;
         throw new Error("예상하지 않은 요소: " + id);
       },
     },
@@ -76,18 +74,15 @@ function setup({ initialNotes = [], hash = "#/", signedIn = true, syncResult = f
     },
   });
   vm.runInContext(notificationSource + visibilitySource + `
-    function pushBox() { return pushTestView(); }
     globalThis.notifications = {
       load: loadNotes,
-      readOpenStudy,
-      setPushTest(value) { pushTest = value; },
-      getPushTest() { return pushTest; }
+      readOpenStudy
     };
   `, context, { filename: "recruit/recruit.js (notifications)" });
   assert.equal(typeof onMessage, "function");
   assert.equal(typeof onVisibility, "function");
   return {
-    calls, noteBtn, notePanel, badge, pushBox,
+    calls, noteBtn, notePanel, badge,
     load: () => context.notifications.load(),
     setHash(value) { context.location.hash = value; },
     async readOpenStudy() {
@@ -96,8 +91,6 @@ function setup({ initialNotes = [], hash = "#/", signedIn = true, syncResult = f
     },
     replaceServerNotes(value) { serverNotes = structuredClone(value); },
     getServerNotes: () => structuredClone(serverNotes),
-    setPushTest: (value) => context.notifications.setPushTest(value),
-    getPushTest: () => context.notifications.getPushTest(),
     getSyncCalls: () => syncCalls,
     async visibility(state) {
       context.document.visibilityState = state;
@@ -130,7 +123,6 @@ test("일반 푸시가 도착하면 서버 알림함을 다시 조회해 열린 
   assert.equal(ui.badge.hidden, false);
   assert.equal(ui.noteBtn.attributes["aria-label"], "알림, 안 읽은 알림 3개");
   assert.match(ui.notePanel.innerHTML, /알림 new-2/);
-  assert.equal(ui.getPushTest(), null, "일반 푸시를 테스트 알림으로 취급하지 않아요");
 
   await ui.receive({ type: "push-received" });
   assert.equal(ui.badge.textContent, "3", "같은 이벤트를 다시 받아도 서버 개수를 유지해요");
@@ -142,29 +134,23 @@ test("푸시 수신 이외의 service worker 메시지는 알림함을 건드리
   await ui.receive(undefined);
   assert.equal(ui.calls.length, 0);
   assert.equal(ui.badge.hidden, true);
-  assert.equal(ui.pushBox.outerHTML, "");
 });
 
-test("테스트 푸시는 도착 진단을 유지하고 서버에 없는 알림 개수를 만들어 내지 않아요", async () => {
+test("점검용 푸시도 서버 알림함을 조회하고 서버에 없는 알림 개수를 만들어 내지 않아요", async () => {
   const ui = setup({ initialNotes: [note("existing")] });
   await ui.load();
-  ui.setPushTest({
-    started: Date.now() - 1000, tail: "endpoint", arrived: null,
-    results: [{ tail: "endpoint", host: "fcm.googleapis.com", ok: true, status: 201 }],
-  });
   await ui.receive({ type: "push-received", test: true, error: "display failed" });
 
-  const arrived = ui.getPushTest().arrived;
-  assert.equal(typeof arrived.secs, "string");
-  assert.equal(arrived.error, "display failed");
-  assert.match(ui.pushBox.outerHTML, /도착했어요/);
-  assert.match(ui.pushBox.outerHTML, /display failed/);
+  assert.equal(ui.calls.length, 2, "점검용 푸시도 최신 서버 상태를 조회해요");
+  assert.ok(ui.calls.every((call) => call.method === "GET"));
   assert.equal(ui.badge.textContent, "1");
   assert.equal(ui.getServerNotes().length, 1);
 
-  await ui.receive({ type: "push-received", test: true, error: "duplicate" });
-  assert.equal(ui.getPushTest().arrived, arrived, "이미 표시한 도착 결과를 중복 메시지가 덮지 않아요");
-  assert.equal(ui.badge.textContent, "1");
+  ui.replaceServerNotes([]);
+  await ui.receive({ type: "push-received", test: true });
+  assert.equal(ui.calls.length, 3);
+  assert.equal(ui.badge.textContent, "0", "푸시 이벤트 수와 관계없이 서버의 개수를 반영해요");
+  assert.equal(ui.badge.hidden, true);
 });
 
 test("상세를 열어 둔 스터디의 새 푸시도 자동으로 읽지 않고 안 읽은 개수를 유지해요", async () => {
